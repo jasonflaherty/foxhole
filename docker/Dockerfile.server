@@ -1,8 +1,6 @@
-# foxhole-cli — offline-first supply chain scanner
-# Build: docker build -t foxhole -f docker/Dockerfile.cli .
-#    or: podman build -t foxhole -f docker/Dockerfile.cli .
-#
-# Published image: ghcr.io/jasonflaherty/foxhole:latest
+# foxhole-server — REST API + dashboard
+# Build: docker build -t foxhole-server -f docker/Dockerfile.server .
+# Run:   docker run --rm -p 8080:8080 -v foxhole-data:/var/lib/foxhole foxhole-server
 
 FROM golang:1.22-alpine AS build
 WORKDIR /src
@@ -23,5 +21,5 @@ USER foxhole
 WORKDIR /work
 ENV FOXHOLE_DB_PATH=/var/lib/foxhole/foxhole.db
 VOLUME ["/var/lib/foxhole"]
-ENTRYPOINT ["foxhole"]
-CMD ["--help"]
+EXPOSE 8080
+ENTRYPOINT ["foxhole", "serve", "--addr", ":8080"]

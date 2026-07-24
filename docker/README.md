@@ -25,6 +25,7 @@ If the package is private the first time, open **GitHub → Packages → foxhole
 | File | Image | Purpose |
 |------|-------|---------|
 | [Dockerfile.cli](Dockerfile.cli) | `foxhole` / `ghcr.io/jasonflaherty/foxhole` | CLI + `foxhole serve` |
+| [Dockerfile.server](Dockerfile.server) | `foxhole-server` | API + dashboard on `:8080` |
 | [Dockerfile.demo](Dockerfile.demo) | `foxhole-go-demo` | Offline scan of [examples/go-demo](../examples/go-demo) |
 
 Data volume: `/var/lib/foxhole` (`FOXHOLE_DB_PATH=/var/lib/foxhole/foxhole.db`)

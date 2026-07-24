@@ -19,16 +19,21 @@ const (
 
 // Config holds runtime configuration for Foxhole.
 type Config struct {
-	DBPath     string `mapstructure:"db_path"`
-	Offline    bool   `mapstructure:"offline"`
-	LogLevel   string `mapstructure:"log_level"`
-	ArchiveDir string `mapstructure:"archive_dir"`
-	Report     string `mapstructure:"report"`
-	NVDAPIKey  string `mapstructure:"nvd_api_key"`
-	Secrets    bool   `mapstructure:"secrets"`
-	EOL        bool   `mapstructure:"eol"`
-	FailOn     string `mapstructure:"fail_on"`
-	PolicyPath string `mapstructure:"policy"`
+	DBPath      string `mapstructure:"db_path"`
+	Offline     bool   `mapstructure:"offline"`
+	LogLevel    string `mapstructure:"log_level"`
+	ArchiveDir  string `mapstructure:"archive_dir"`
+	Report      string `mapstructure:"report"`
+	NVDAPIKey   string `mapstructure:"nvd_api_key"`
+	Secrets     bool   `mapstructure:"secrets"`
+	EOL         bool   `mapstructure:"eol"`
+	Misconfig   bool   `mapstructure:"misconfig"`
+	Licenses    bool   `mapstructure:"licenses"`
+	Enrich      bool   `mapstructure:"enrich"`
+	FailOn      string `mapstructure:"fail_on"`
+	PolicyPath  string `mapstructure:"policy"`
+	Remediate   bool   `mapstructure:"remediate"`
+	RemediateAI bool   `mapstructure:"remediate_ai"`
 }
 
 // DefaultDBPath returns the default SQLite database path.
@@ -61,8 +66,13 @@ func Load() (*Config, error) {
 	v.SetDefault("nvd_api_key", "")
 	v.SetDefault("secrets", true)
 	v.SetDefault("eol", true)
+	v.SetDefault("misconfig", true)
+	v.SetDefault("licenses", true)
+	v.SetDefault("enrich", true)
 	v.SetDefault("fail_on", "")
 	v.SetDefault("policy", "")
+	v.SetDefault("remediate", false)
+	v.SetDefault("remediate_ai", false)
 
 	if err := v.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
@@ -96,8 +106,13 @@ func NewViper() *viper.Viper {
 	v.SetDefault("nvd_api_key", "")
 	v.SetDefault("secrets", true)
 	v.SetDefault("eol", true)
+	v.SetDefault("misconfig", true)
+	v.SetDefault("licenses", true)
+	v.SetDefault("enrich", true)
 	v.SetDefault("fail_on", "")
 	v.SetDefault("policy", "")
+	v.SetDefault("remediate", false)
+	v.SetDefault("remediate_ai", false)
 	return v
 }
 

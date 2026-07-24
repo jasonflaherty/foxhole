@@ -14,9 +14,11 @@ import (
 type Kind string
 
 const (
-	KindVuln   Kind = "vuln"
-	KindSecret Kind = "secret"
-	KindEOL    Kind = "eol"
+	KindVuln      Kind = "vuln"
+	KindSecret    Kind = "secret"
+	KindEOL       Kind = "eol"
+	KindMisconfig Kind = "misconfig"
+	KindLicense   Kind = "license"
 )
 
 // Finding is a scan result ready for reporting.
@@ -35,18 +37,25 @@ type Finding struct {
 	Product   string            `json:"product,omitempty"`
 	Cycle     string            `json:"cycle,omitempty"`
 	EOLDate   string            `json:"eol_date,omitempty"`
+	InKEV     bool              `json:"in_kev,omitempty"`
+	EPSS      *float64          `json:"epss,omitempty"`
+	License   string            `json:"license,omitempty"`
 }
 
 // ID returns a stable identifier for display/dedupe.
 func (f Finding) ID() string {
 	switch f.Kind {
-	case KindSecret:
+	case KindSecret, KindMisconfig:
 		if f.RuleID != "" {
 			return f.RuleID
 		}
 	case KindEOL:
 		if f.Product != "" {
 			return f.Product + "@" + f.Cycle
+		}
+	case KindLicense:
+		if f.License != "" {
+			return f.License
 		}
 	}
 	if f.VulnID != "" {
@@ -66,8 +75,11 @@ type Result struct {
 
 // EngineOptions configures optional scanners.
 type EngineOptions struct {
-	Secrets bool
-	EOL     bool
+	Secrets   bool
+	EOL       bool
+	Misconfig bool
+	Licenses  bool
+	Enrich    bool // KEV / EPSS enrichment
 }
 
 // Engine coordinates discovery and provider search.
@@ -76,6 +88,12 @@ type Engine struct {
 	providers []provider.Provider
 	store     *db.DB
 	opts      EngineOptions
+	plugins   PluginRunner
+}
+
+// PluginRunner runs optional plugin scanners.
+type PluginRunner interface {
+	ExtraFindings(ctx context.Context, root string) ([]Finding, error)
 }
 
 // NewEngine creates a scan engine with secrets and EOL enabled by default.
@@ -84,13 +102,19 @@ func NewEngine(store *db.DB, providers ...provider.Provider) *Engine {
 		fs:        NewFilesystemScanner(),
 		providers: providers,
 		store:     store,
-		opts:      EngineOptions{Secrets: true, EOL: true},
+		opts:      EngineOptions{Secrets: true, EOL: true, Misconfig: true, Licenses: true, Enrich: true},
 	}
 }
 
 // WithOptions sets scanner toggles.
 func (e *Engine) WithOptions(opts EngineOptions) *Engine {
 	e.opts = opts
+	return e
+}
+
+// WithPlugins attaches optional plugin scanners.
+func (e *Engine) WithPlugins(p PluginRunner) *Engine {
+	e.plugins = p
 	return e
 }
 
@@ -196,6 +220,48 @@ func (e *Engine) Scan(ctx context.Context, target string) (*Result, error) {
 			seen[key] = struct{}{}
 			findings = append(findings, f)
 		}
+	}
+
+	if e.opts.Misconfig {
+		mc, err := ScanDockerfileMisconfig(target)
+		if err != nil {
+			return nil, fmt.Errorf("misconfig: %w", err)
+		}
+		for _, f := range mc {
+			key := "misconfig|" + f.Path + "|" + f.RuleID + "|" + strconv.Itoa(f.Line)
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+			findings = append(findings, f)
+		}
+	}
+
+	if e.opts.Licenses && e.store != nil {
+		lic, err := ScanLicenses(ctx, e.store, target, pkgs)
+		if err != nil {
+			return nil, fmt.Errorf("licenses: %w", err)
+		}
+		for _, f := range lic {
+			key := "license|" + f.Package.Name + "|" + f.License
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+			findings = append(findings, f)
+		}
+	}
+
+	if e.plugins != nil {
+		extra, err := e.plugins.ExtraFindings(ctx, target)
+		if err != nil {
+			return nil, fmt.Errorf("plugins: %w", err)
+		}
+		findings = append(findings, extra...)
+	}
+
+	if e.opts.Enrich && e.store != nil {
+		enrichFindings(ctx, e.store, findings)
 	}
 
 	return &Result{

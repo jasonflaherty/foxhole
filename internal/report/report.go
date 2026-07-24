@@ -29,6 +29,12 @@ func ByName(name string) (Writer, error) {
 		return HTML{}, nil
 	case "sarif":
 		return SARIF{}, nil
+	case "junit", "xml":
+		return JUnit{}, nil
+	case "cyclonedx", "cdx":
+		return CycloneDX{}, nil
+	case "spdx":
+		return SPDX{}, nil
 	default:
 		return nil, fmt.Errorf("unknown report format %q", name)
 	}
@@ -76,6 +82,15 @@ func WriteAll(formats []string, result *scan.Result, stdoutOut io.Writer, outDir
 		ext := name
 		if name == "markdown" || name == "md" {
 			ext = "md"
+		}
+		if name == "junit" || name == "xml" {
+			ext = "junit.xml"
+		}
+		if name == "cyclonedx" || name == "cdx" {
+			ext = "cdx.json"
+		}
+		if name == "spdx" {
+			ext = "spdx.json"
 		}
 		path := filepath.Join(outDir, "foxhole-report."+ext)
 		f, err := os.Create(path)

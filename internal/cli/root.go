@@ -11,12 +11,18 @@ import (
 	"github.com/jasonflaherty/foxhole/internal/diff"
 	"github.com/jasonflaherty/foxhole/internal/logger"
 	"github.com/jasonflaherty/foxhole/internal/notify"
+	"github.com/jasonflaherty/foxhole/internal/pluginadapt"
 	"github.com/jasonflaherty/foxhole/internal/policy"
+	"github.com/jasonflaherty/foxhole/internal/remediate"
 	"github.com/jasonflaherty/foxhole/internal/report"
 	"github.com/jasonflaherty/foxhole/internal/scan"
 	"github.com/jasonflaherty/foxhole/internal/seeds"
 	"github.com/jasonflaherty/foxhole/internal/version"
+	"github.com/jasonflaherty/foxhole/pkg/plugin"
 	"github.com/jasonflaherty/foxhole/pkg/provider"
+	"github.com/jasonflaherty/foxhole/pkg/provider/epss"
+	"github.com/jasonflaherty/foxhole/pkg/provider/ghsa"
+	"github.com/jasonflaherty/foxhole/pkg/provider/kev"
 	"github.com/jasonflaherty/foxhole/pkg/provider/nvd"
 	"github.com/jasonflaherty/foxhole/pkg/provider/osv"
 	"github.com/spf13/cobra"
@@ -56,17 +62,26 @@ func NewRootCommand() *cobra.Command {
 	root.PersistentFlags().Bool("offline", false, "disable network access")
 	root.PersistentFlags().String("log-level", "info", "log level (debug, info, warn, error)")
 	root.PersistentFlags().String("nvd-api-key", "", "optional NVD API key")
-	root.Flags().String("report", "console", "report formats: console,json,markdown,html,sarif (comma-separated)")
+	root.Flags().String("report", "console", "report formats: console,json,markdown,html,sarif,junit,cyclonedx,spdx")
 	root.Flags().Bool("secrets", true, "enable secret scanning")
 	root.Flags().Bool("eol", true, "enable end-of-life checks")
+	root.Flags().Bool("misconfig", true, "enable Dockerfile misconfiguration checks")
+	root.Flags().Bool("licenses", true, "enable license risk checks")
+	root.Flags().Bool("enrich", true, "enrich vulns with KEV/EPSS")
 	root.Flags().Bool("archive", false, "write reports under archive/YYYY/MM/DD/")
 	root.Flags().String("archive-dir", "archive", "base directory for archived reports")
 	root.Flags().Bool("github", false, "open a GitHub issue with scan summary")
 	root.Flags().Bool("teams", false, "post scan summary to Microsoft Teams webhook")
 	root.Flags().Bool("email", false, "email scan summary via SMTP")
+	root.Flags().Bool("slack", false, "post to Slack webhook")
+	root.Flags().Bool("discord", false, "post to Discord webhook")
+	root.Flags().Bool("webhook", false, "post JSON to FOXHOLE_WEBHOOK_URL")
+	root.Flags().Bool("github-checks", false, "create a GitHub Check Run")
+	root.Flags().Bool("remediate", false, "write remediation suggestions (markdown+json)")
+	root.Flags().Bool("remediate-ai", false, "enrich remediation with OpenAI-compatible API")
 	root.Flags().String("fail-on", "", "fail CI if findings at or above severity (critical|high|medium|low|info|any)")
 	root.Flags().String("policy", "", "path to policy YAML (fail_on, kinds, ignore)")
-	root.Flags().StringSlice("fail-on-kind", nil, "limit policy to finding kinds (vuln,secret,eol); repeatable")
+	root.Flags().StringSlice("fail-on-kind", nil, "limit policy to finding kinds; repeatable")
 
 	_ = v.BindPFlag("db_path", root.PersistentFlags().Lookup("db-path"))
 	_ = v.BindPFlag("offline", root.PersistentFlags().Lookup("offline"))
@@ -75,9 +90,14 @@ func NewRootCommand() *cobra.Command {
 	_ = v.BindPFlag("report", root.Flags().Lookup("report"))
 	_ = v.BindPFlag("secrets", root.Flags().Lookup("secrets"))
 	_ = v.BindPFlag("eol", root.Flags().Lookup("eol"))
+	_ = v.BindPFlag("misconfig", root.Flags().Lookup("misconfig"))
+	_ = v.BindPFlag("licenses", root.Flags().Lookup("licenses"))
+	_ = v.BindPFlag("enrich", root.Flags().Lookup("enrich"))
 	_ = v.BindPFlag("archive_dir", root.Flags().Lookup("archive-dir"))
 	_ = v.BindPFlag("fail_on", root.Flags().Lookup("fail-on"))
 	_ = v.BindPFlag("policy", root.Flags().Lookup("policy"))
+	_ = v.BindPFlag("remediate", root.Flags().Lookup("remediate"))
+	_ = v.BindPFlag("remediate_ai", root.Flags().Lookup("remediate-ai"))
 
 	root.AddCommand(newDBCommand(v))
 	root.AddCommand(newVersionCommand())
@@ -110,15 +130,25 @@ func runScan(cmd *cobra.Command, args []string) error {
 
 	osvProv := osv.New(database, osv.WithOffline(cfg.Offline))
 	nvdProv := nvd.New(database, nvd.WithOffline(cfg.Offline), nvd.WithAPIKey(cfg.NVDAPIKey))
-	engine := scan.NewEngine(database, osvProv, nvdProv).WithOptions(scan.EngineOptions{
-		Secrets: cfg.Secrets,
-		EOL:     cfg.EOL,
-	})
+	ghsaProv := ghsa.New(database)
+	engine := scan.NewEngine(database, osvProv, nvdProv, ghsaProv).
+		WithOptions(scan.EngineOptions{
+			Secrets:   cfg.Secrets,
+			EOL:       cfg.EOL,
+			Misconfig: cfg.Misconfig,
+			Licenses:  cfg.Licenses,
+			Enrich:    cfg.Enrich,
+		}).
+		WithPlugins(pluginadapt.Runner{Reg: plugin.NewRegistry()})
 
 	doArchive, _ := cmd.Flags().GetBool("archive")
 	doGitHub, _ := cmd.Flags().GetBool("github")
 	doTeams, _ := cmd.Flags().GetBool("teams")
 	doEmail, _ := cmd.Flags().GetBool("email")
+	doSlack, _ := cmd.Flags().GetBool("slack")
+	doDiscord, _ := cmd.Flags().GetBool("discord")
+	doWebhook, _ := cmd.Flags().GetBool("webhook")
+	doChecks, _ := cmd.Flags().GetBool("github-checks")
 
 	histID, err := database.StartScanHistory(cmd.Context(), abs)
 	if err != nil {
@@ -154,6 +184,36 @@ func runScan(cmd *cobra.Command, args []string) error {
 		fmt.Fprintf(cmd.OutOrStdout(), "Archived to %s\n", dir)
 	}
 
+	if cfg.Remediate || cfg.RemediateAI {
+		opts := remediate.FromEnv()
+		opts.AI = cfg.RemediateAI
+		rep, err := remediate.Generate(cmd.Context(), result, opts)
+		if err != nil {
+			return fmt.Errorf("remediate: %w", err)
+		}
+		mdPath := "foxhole-remediation.md"
+		jsonPath := "foxhole-remediation.json"
+		mdFile, err := os.Create(mdPath)
+		if err != nil {
+			return err
+		}
+		if err := remediate.WriteMarkdown(mdFile, rep); err != nil {
+			_ = mdFile.Close()
+			return err
+		}
+		_ = mdFile.Close()
+		jsonFile, err := os.Create(jsonPath)
+		if err != nil {
+			return err
+		}
+		if err := remediate.WriteJSON(jsonFile, rep); err != nil {
+			_ = jsonFile.Close()
+			return err
+		}
+		_ = jsonFile.Close()
+		fmt.Fprintf(cmd.OutOrStdout(), "wrote %s\nwrote %s\n", mdPath, jsonPath)
+	}
+
 	snap, err := diff.SnapshotJSON(result.Findings)
 	if err != nil {
 		snap = "[]"
@@ -162,7 +222,10 @@ func runScan(cmd *cobra.Command, args []string) error {
 		logger.L().Warn("finish scan history failed", zap.Error(err))
 	}
 
-	for _, n := range notify.Select(notify.FromEnv(), doGitHub, doTeams, doEmail) {
+	for _, n := range notify.SelectAll(notify.FromEnv(), notify.Flags{
+		GitHub: doGitHub, Teams: doTeams, Email: doEmail,
+		Slack: doSlack, Discord: doDiscord, Webhook: doWebhook, GitHubChecks: doChecks,
+	}) {
 		if err := n.Notify(cmd.Context(), result); err != nil {
 			logger.L().Warn("notify failed", zap.String("channel", n.Name()), zap.Error(err))
 			fmt.Fprintf(cmd.ErrOrStderr(), "notify %s: %v\n", n.Name(), err)
@@ -293,6 +356,9 @@ func runDBUpdate(cmd *cobra.Command, cfg *config.Config, target string, maxPacka
 	}
 	reg.Register(osv.New(database, osvOpts...))
 	reg.Register(nvd.New(database, nvdOpts...))
+	reg.Register(ghsa.New(database))
+	reg.Register(kev.New(database, kev.WithOffline(cfg.Offline)))
+	reg.Register(epss.New(database, epss.WithOffline(true)))
 
 	results, err := reg.UpdateAll(cmd.Context())
 	if err != nil {
@@ -307,8 +373,11 @@ func runDBUpdate(cmd *cobra.Command, cfg *config.Config, target string, maxPacka
 	cves, adv, _ := database.CountVulns(cmd.Context())
 	secrets, _ := database.CountSecretRules(cmd.Context())
 	eols, _ := database.CountEOL(cmd.Context())
-	fmt.Fprintf(cmd.OutOrStdout(), "database ready: %d CVEs, %d advisories, %d secret rules, %d eol rows at %s\n",
-		cves, adv, secrets, eols, expandPath(cfg.DBPath))
+	kevN, _ := database.CountKEV(cmd.Context())
+	epssN, _ := database.CountEPSS(cmd.Context())
+	licN, _ := database.CountLicenses(cmd.Context())
+	fmt.Fprintf(cmd.OutOrStdout(), "database ready: %d CVEs, %d advisories, %d secret rules, %d eol, %d kev, %d epss, %d licenses at %s\n",
+		cves, adv, secrets, eols, kevN, epssN, licN, expandPath(cfg.DBPath))
 	return nil
 }
 

@@ -1,0 +1,7 @@
+[
+  {"id": "gpl-3.0", "name": "GNU General Public License v3.0", "spdx_id": "GPL-3.0", "risk": "high", "osi_approved": true},
+  {"id": "agpl-3.0", "name": "GNU Affero General Public License v3.0", "spdx_id": "AGPL-3.0", "risk": "high", "osi_approved": true},
+  {"id": "sspl", "name": "Server Side Public License", "spdx_id": "SSPL-1.0", "risk": "high", "osi_approved": false},
+  {"id": "mit", "name": "MIT License", "spdx_id": "MIT", "risk": "low", "osi_approved": true},
+  {"id": "apache-2.0", "name": "Apache License 2.0", "spdx_id": "Apache-2.0", "risk": "low", "osi_approved": true}
+]

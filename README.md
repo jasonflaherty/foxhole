@@ -2,8 +2,10 @@
 
 Offline-first, open-source software supply chain security scanner.
 
-Foxhole combines vulnerability (NVD/OSV), secret, and EOL scanning with
-multi-format reporting, scan history/diff, notifications, and a local REST API.
+Foxhole combines vulnerability (NVD/OSV/GHSA), secret, EOL, license, and
+Dockerfile misconfig scanning with multi-format reporting (including JUnit /
+CycloneDX / SPDX), KEV/EPSS enrichment, remediation suggestions, scan
+history/diff, notifications, policy gates, and a local REST API.
 
 ## Quick start
 
@@ -49,17 +51,26 @@ See [examples/foxhole.yaml](examples/foxhole.yaml).
 | `--offline` / `FOXHOLE_OFFLINE` | Disable network access |
 | `--log-level` / `FOXHOLE_LOG_LEVEL` | Zap log level |
 | `--nvd-api-key` / `FOXHOLE_NVD_API_KEY` | Optional NVD API key |
-| `--report` / `FOXHOLE_REPORT` | Formats: `console,json,markdown,html,sarif` |
+| `--report` / `FOXHOLE_REPORT` | Formats: `console,json,markdown,html,sarif,junit,cyclonedx,spdx` |
 | `--secrets` / `FOXHOLE_SECRETS` | Enable secret scanning (default true) |
 | `--eol` / `FOXHOLE_EOL` | Enable EOL checks (default true) |
+| `--misconfig` / `FOXHOLE_MISCONFIG` | Dockerfile misconfig checks (default true) |
+| `--licenses` / `FOXHOLE_LICENSES` | License risk checks (default true) |
+| `--enrich` / `FOXHOLE_ENRICH` | KEV/EPSS enrichment (default true) |
+| `--remediate` | Write `foxhole-remediation.md` + `.json` |
+| `--remediate-ai` | Enrich remediation via OpenAI-compatible API |
 | `--archive` | Write reports under `archive/YYYY/MM/DD/` |
 | `--archive-dir` / `FOXHOLE_ARCHIVE_DIR` | Archive base directory (default `archive`) |
 | `--github` | Open a GitHub issue (`FOXHOLE_GITHUB_TOKEN`, `FOXHOLE_GITHUB_REPO`) |
 | `--teams` | Post to Teams (`FOXHOLE_TEAMS_WEBHOOK`) |
 | `--email` | SMTP email (`FOXHOLE_SMTP_*`, `FOXHOLE_EMAIL_FROM`, `FOXHOLE_EMAIL_TO`) |
+| `--slack` | Slack webhook (`FOXHOLE_SLACK_WEBHOOK`) |
+| `--discord` | Discord webhook (`FOXHOLE_DISCORD_WEBHOOK`) |
+| `--webhook` | Generic JSON webhook (`FOXHOLE_WEBHOOK_URL`) |
+| `--github-checks` | GitHub Check Run (`FOXHOLE_GIT_SHA` / `GITHUB_SHA`) |
 | `--fail-on` / `FOXHOLE_FAIL_ON` | CI gate: fail if findings ≥ severity (`high`, `any`, …) |
 | `--policy` / `FOXHOLE_POLICY` | Path to policy YAML (`fail_on`, `kinds`, `ignore`) |
-| `--fail-on-kind` | Limit gate to kinds (`vuln`, `secret`, `eol`; repeatable) |
+| `--fail-on-kind` | Limit gate to kinds (repeatable) |
 
 ## CLI
 
@@ -69,6 +80,8 @@ foxhole . --report json,html,sarif           # write foxhole-report.* files
 foxhole . --archive                          # also write archive/YYYY/MM/DD/*
 foxhole . --fail-on high                     # exit 2 if high+ findings (CI)
 foxhole . --policy examples/policy.yaml      # same via YAML
+foxhole . --remediate                        # write remediation markdown/json
+foxhole . --report console,junit,cyclonedx,spdx
 foxhole . --secrets=false --eol=false        # vulns only
 foxhole history                              # list recent scans
 foxhole diff last .                          # compare last two scans for path

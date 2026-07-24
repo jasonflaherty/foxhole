@@ -1,0 +1,4 @@
+[
+  {"cve_id": "CVE-2024-9999", "score": 0.87, "percentile": 0.99},
+  {"cve_id": "CVE-2021-44228", "score": 0.97, "percentile": 0.999}
+]

@@ -28,31 +28,39 @@ type HTTPDoer interface {
 
 // Config holds notification credentials from the environment.
 type Config struct {
-	TeamsWebhook string
-	GitHubToken  string
-	GitHubRepo   string // owner/repo
-	SMTPHost     string
-	SMTPPort     string
-	SMTPUser     string
-	SMTPPass     string
-	EmailFrom    string
-	EmailTo      string
-	Client       HTTPDoer
+	TeamsWebhook   string
+	GitHubToken    string
+	GitHubRepo     string // owner/repo
+	GitSHA         string
+	SMTPHost       string
+	SMTPPort       string
+	SMTPUser       string
+	SMTPPass       string
+	EmailFrom      string
+	EmailTo        string
+	SlackWebhook   string
+	DiscordWebhook string
+	WebhookURL     string
+	Client         HTTPDoer
 }
 
 // FromEnv loads notification settings.
 func FromEnv() Config {
 	return Config{
-		TeamsWebhook: os.Getenv("FOXHOLE_TEAMS_WEBHOOK"),
-		GitHubToken:  firstEnv("FOXHOLE_GITHUB_TOKEN", "GITHUB_TOKEN"),
-		GitHubRepo:   firstEnv("FOXHOLE_GITHUB_REPO", "GITHUB_REPOSITORY"),
-		SMTPHost:     os.Getenv("FOXHOLE_SMTP_HOST"),
-		SMTPPort:     envOr("FOXHOLE_SMTP_PORT", "587"),
-		SMTPUser:     os.Getenv("FOXHOLE_SMTP_USER"),
-		SMTPPass:     os.Getenv("FOXHOLE_SMTP_PASS"),
-		EmailFrom:    os.Getenv("FOXHOLE_EMAIL_FROM"),
-		EmailTo:      os.Getenv("FOXHOLE_EMAIL_TO"),
-		Client:       http.DefaultClient,
+		TeamsWebhook:   os.Getenv("FOXHOLE_TEAMS_WEBHOOK"),
+		GitHubToken:    firstEnv("FOXHOLE_GITHUB_TOKEN", "GITHUB_TOKEN"),
+		GitHubRepo:     firstEnv("FOXHOLE_GITHUB_REPO", "GITHUB_REPOSITORY"),
+		GitSHA:         firstEnv("FOXHOLE_GIT_SHA", "GITHUB_SHA"),
+		SMTPHost:       os.Getenv("FOXHOLE_SMTP_HOST"),
+		SMTPPort:       envOr("FOXHOLE_SMTP_PORT", "587"),
+		SMTPUser:       os.Getenv("FOXHOLE_SMTP_USER"),
+		SMTPPass:       os.Getenv("FOXHOLE_SMTP_PASS"),
+		EmailFrom:      os.Getenv("FOXHOLE_EMAIL_FROM"),
+		EmailTo:        os.Getenv("FOXHOLE_EMAIL_TO"),
+		SlackWebhook:   os.Getenv("FOXHOLE_SLACK_WEBHOOK"),
+		DiscordWebhook: os.Getenv("FOXHOLE_DISCORD_WEBHOOK"),
+		WebhookURL:     os.Getenv("FOXHOLE_WEBHOOK_URL"),
+		Client:         http.DefaultClient,
 	}
 }
 

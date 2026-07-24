@@ -59,6 +59,16 @@
     .status-ok { color: var(--accent); }
     .status-error { color: var(--bad); }
     .status-running { color: var(--warn); }
+    .stats {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+      gap: 0.75rem; margin: 0 0 1.5rem;
+    }
+    .stat {
+      background: color-mix(in srgb, var(--panel) 88%, transparent);
+      border: 1px solid var(--line); padding: 0.85rem 1rem;
+    }
+    .stat strong { display: block; font-size: 1.4rem; color: var(--accent); font-family: "IBM Plex Mono", monospace; }
+    .stat span { color: var(--muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; }
     .empty { color: var(--muted); padding: 2rem 0; }
     code { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 0.85em; }
   </style>
@@ -66,13 +76,14 @@
 <body>
   <header>
     <h1>Foxhole</h1>
-    <p>Local scan history from the SQLite store. Use the REST API for scans and DB updates.</p>
+    <p>Local scan history, finding trends, and API status. POST /scan to add runs; use --remediate on the CLI for fix guidance.</p>
   </header>
   <main>
     <div class="meta">
       <span>Health: <strong id="health">…</strong></span>
       <span>Version: <strong id="version">…</strong></span>
     </div>
+    <div class="stats" id="stats"></div>
     <div id="content" class="empty">Loading history…</div>
   </main>
   <script>
@@ -86,13 +97,21 @@
         document.getElementById("health").textContent = h.status || "unknown";
         document.getElementById("version").textContent = v.version || "unknown";
         const el = document.getElementById("content");
-        if (!hist || hist.length === 0) {
+        const list = hist || [];
+        const totalFindings = list.reduce((a, r) => a + (r.finding_count || 0), 0);
+        const ok = list.filter(r => (r.status || "").toLowerCase() === "ok").length;
+        document.getElementById("stats").innerHTML = `
+          <div class="stat"><strong>${list.length}</strong><span>Scans</span></div>
+          <div class="stat"><strong>${totalFindings}</strong><span>Findings (sum)</span></div>
+          <div class="stat"><strong>${ok}</strong><span>OK runs</span></div>
+          <div class="stat"><strong>${list.length ? (list[0].finding_count || 0) : 0}</strong><span>Latest findings</span></div>`;
+        if (list.length === 0) {
           el.className = "empty";
           el.textContent = "No scans yet. POST /scan or run foxhole . then refresh.";
           return;
         }
         el.className = "";
-        const rows = hist.map(r => {
+        const rows = list.map(r => {
           const st = (r.status || "").toLowerCase();
           const cls = st === "ok" ? "status-ok" : (st === "error" ? "status-error" : "status-running");
           const started = r.started_at ? new Date(r.started_at).toLocaleString() : "";

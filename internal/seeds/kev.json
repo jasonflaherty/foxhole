@@ -1,0 +1,4 @@
+[
+  {"cve_id": "CVE-2024-9999", "vendor_project": "Demo", "product": "vulnerable/lib", "date_added": "2024-06-01", "due_date": "2024-06-22", "known_ransomware": "Unknown"},
+  {"cve_id": "CVE-2021-44228", "vendor_project": "Apache", "product": "Log4j", "date_added": "2021-12-10", "due_date": "2021-12-24", "known_ransomware": "Known"}
+]
