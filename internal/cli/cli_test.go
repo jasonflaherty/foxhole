@@ -18,7 +18,7 @@ func TestVersionCommand(t *testing.T) {
 	if err := root.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(buf.String(), "0.2.0") {
+	if !strings.Contains(buf.String(), "0.3.0") {
 		t.Fatalf("output = %q", buf.String())
 	}
 }

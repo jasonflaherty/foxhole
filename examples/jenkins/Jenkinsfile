@@ -11,7 +11,7 @@ pipeline {
   environment {
     // Prefer a release tag. Override with IMAGE_DIGEST for immutable pins, e.g.:
     //   FOXHOLE_IMAGE=ghcr.io/jasonflaherty/foxhole@sha256:abc…
-    FOXHOLE_IMAGE = "${env.FOXHOLE_IMAGE ?: 'ghcr.io/jasonflaherty/foxhole:v0.2.0'}"
+    FOXHOLE_IMAGE = "${env.FOXHOLE_IMAGE ?: 'ghcr.io/jasonflaherty/foxhole:v0.3.0'}"
     FOXHOLE_DB_PATH = "${WORKSPACE}/.foxhole/foxhole.db"
     FOXHOLE_REQUIRE_COSIGN = "${env.FOXHOLE_REQUIRE_COSIGN ?: 'false'}"
   }

@@ -8,16 +8,16 @@ Pushed by [publish-image.yml](../.github/workflows/publish-image.yml) on `main` 
 
 ```bash
 # Prefer a version tag (or digest) for CI — not :latest
-docker pull ghcr.io/jasonflaherty/foxhole:v0.2.0
+docker pull ghcr.io/jasonflaherty/foxhole:v0.3.0
 # Immutable pin:
 # docker pull ghcr.io/jasonflaherty/foxhole@sha256:<digest>
 
-docker run --rm ghcr.io/jasonflaherty/foxhole:v0.2.0 version
+docker run --rm ghcr.io/jasonflaherty/foxhole:v0.3.0 version
 
 docker run --rm \
   -v foxhole-data:/var/lib/foxhole \
   -v "$PWD:/work:ro" \
-  ghcr.io/jasonflaherty/foxhole:v0.2.0 /work --offline
+  ghcr.io/jasonflaherty/foxhole:v0.3.0 /work --offline
 ```
 
 ### Cosign verify (optional)
@@ -30,7 +30,7 @@ See [examples/jenkins/README.md](../examples/jenkins/README.md).
 cosign verify \
   --certificate-identity-regexp='https://github.com/jasonflaherty/foxhole/\.github/workflows/publish-image\.yml@.*' \
   --certificate-oidc-issuer='https://token.actions.githubusercontent.com' \
-  ghcr.io/jasonflaherty/foxhole:v0.2.0
+  ghcr.io/jasonflaherty/foxhole:v0.3.0
 ```
 
 Publish workflow signs images keyless (OIDC). Air-gap runbook: [docs/AIRGAP.md](../docs/AIRGAP.md).

@@ -31,7 +31,7 @@ jobs:
     timeout-minutes: 15
     env:
       FOXHOLE_DB_PATH: ${{ github.workspace }}/.foxhole/foxhole.db
-      FOXHOLE_IMAGE: ghcr.io/jasonflaherty/foxhole:v0.2.0
+      FOXHOLE_IMAGE: ghcr.io/jasonflaherty/foxhole:v0.3.0
       FOXHOLE_IMAGE_DIGEST: sha256:deadbeefdemo
       DEMO: examples/phase2-findings
 
@@ -82,7 +82,7 @@ jobs:
           assert m["tool"] == "foxhole"
           assert m["policy_failed"] is True
           assert m["policy_fingerprint"]
-          assert m["image"] == "ghcr.io/jasonflaherty/foxhole:v0.2.0"
+          assert m["image"] == "ghcr.io/jasonflaherty/foxhole:v0.3.0"
           assert m["image_digest"] == "sha256:deadbeefdemo"
           assert m["db"].get("providers_sha256") or m["db"].get("last_sync_at")
           p = json.load(open("foxhole-evidence/policy.json"))

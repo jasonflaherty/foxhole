@@ -37,7 +37,7 @@ Or install the binary / pull the image:
 ```bash
 go install github.com/jasonflaherty/foxhole/cmd/foxhole@latest
 # or
-docker pull ghcr.io/jasonflaherty/foxhole:v0.2.0
+docker pull ghcr.io/jasonflaherty/foxhole:v0.3.0
 ```
 
 ## Mental model
@@ -215,7 +215,7 @@ foxhole serve --addr :8080
 docker run --rm \
   -v foxhole-data:/var/lib/foxhole \
   -v "$PWD:/work:ro" \
-  ghcr.io/jasonflaherty/foxhole:v0.2.0 /work --offline
+  ghcr.io/jasonflaherty/foxhole:v0.3.0 /work --offline
 
 ./docker/run-demo.sh    # offline go-demo in one shot
 ```
