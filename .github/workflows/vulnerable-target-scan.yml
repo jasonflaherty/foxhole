@@ -110,7 +110,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload scan results
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: foxhole-${{ env.TARGET_NAME }}-scan
           path: |

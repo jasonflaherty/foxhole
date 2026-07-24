@@ -99,7 +99,7 @@ jobs:
           fi
 
       - name: Upload scan artifacts
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: foxhole-phase2-findings-demo
           path: |
