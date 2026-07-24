@@ -1,0 +1,30 @@
+# foxhole go-demo — self-contained offline scan demo
+# Build: docker build -t foxhole-go-demo -f docker/Dockerfile.demo .
+#    or: podman build -t foxhole-go-demo -f docker/Dockerfile.demo .
+# Run:  docker run --rm foxhole-go-demo
+#    or: podman run --rm foxhole-go-demo
+
+FROM golang:1.22-alpine AS build
+WORKDIR /src
+RUN apk add --no-cache git ca-certificates
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o /out/foxhole ./cmd/foxhole
+
+FROM alpine:3.20
+RUN apk add --no-cache ca-certificates \
+	&& adduser -D -u 1000 -h /var/lib/foxhole foxhole \
+	&& mkdir -p /var/lib/foxhole /demo \
+	&& chown -R foxhole:foxhole /var/lib/foxhole /demo
+
+COPY --from=build /out/foxhole /usr/local/bin/foxhole
+COPY --chown=foxhole:foxhole examples/go-demo/ /demo/
+COPY --chown=foxhole:foxhole docker/demo-entrypoint.sh /usr/local/bin/demo-entrypoint.sh
+RUN chmod +x /usr/local/bin/demo-entrypoint.sh
+
+USER foxhole
+ENV FOXHOLE_DB_PATH=/var/lib/foxhole/foxhole.db
+WORKDIR /demo
+VOLUME ["/var/lib/foxhole"]
+ENTRYPOINT ["/usr/local/bin/demo-entrypoint.sh"]

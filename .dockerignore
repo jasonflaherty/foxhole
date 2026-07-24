@@ -1,0 +1,12 @@
+.git
+.gitignore
+bin/
+coverage.out
+*.db
+*.db-wal
+*.db-shm
+.idea/
+.vscode/
+agent-transcripts/
+**/*_test.go
+testdata/

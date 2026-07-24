@@ -19,6 +19,18 @@ foxhole .
 foxhole . --offline
 ```
 
+### Container demo (Docker or Podman)
+
+```bash
+docker build -t foxhole-go-demo -f docker/Dockerfile.demo .
+docker run --rm foxhole-go-demo
+
+# or: podman build -t foxhole-go-demo -f docker/Dockerfile.demo .
+#     podman run --rm foxhole-go-demo
+```
+
+See [docker/README.md](docker/README.md) for the CLI image and volume mounts.
+
 ## Configuration
 
 Precedence: **CLI flags > environment variables (`FOXHOLE_*`) > `foxhole.yaml`**
