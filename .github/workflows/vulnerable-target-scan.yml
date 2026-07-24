@@ -35,10 +35,10 @@ jobs:
 
     steps:
       - name: Checkout Foxhole
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: "1.22.12"
           cache: true
@@ -110,7 +110,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload scan results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: foxhole-${{ env.TARGET_NAME }}-scan
           path: |
