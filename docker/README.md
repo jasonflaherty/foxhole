@@ -2,14 +2,25 @@
 
 Works with **Docker** or **Podman** (commands are interchangeable). Prefer Podman if both are installed — `./docker/run-demo.sh` picks it automatically.
 
-## Pull published image (GHCR)
+## Pull published image
 
-Pushed by [publish-image.yml](../.github/workflows/publish-image.yml) on `main` (`:latest`) and on `v*` tags / GitHub Releases.
+**GHCR** (always published):
+
+```bash
+docker pull ghcr.io/jasonflaherty/foxhole:v0.3.0
+```
+
+**Docker Hub** (when repo secrets `DOCKERHUB_USERNAME` + `DOCKERHUB_TOKEN` are set):
+
+```bash
+docker pull jasonflaherty/foxhole:v0.3.0   # username matches your Hub account
+```
+
+Pushed by [publish-image.yml](../.github/workflows/publish-image.yml) on `main` (`:latest`), `v*` tags, and releases.
 
 ```bash
 # Prefer a version tag (or digest) for CI — not :latest
 docker pull ghcr.io/jasonflaherty/foxhole:v0.3.0
-# Immutable pin:
 # docker pull ghcr.io/jasonflaherty/foxhole@sha256:<digest>
 
 docker run --rm ghcr.io/jasonflaherty/foxhole:v0.3.0 version

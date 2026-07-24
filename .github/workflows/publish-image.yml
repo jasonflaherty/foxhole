@@ -1,6 +1,7 @@
 name: Publish container image
 
-# Build and push ghcr.io/<owner>/<repo> from main (latest) and version tags / releases.
+# Build and push to GHCR and (when secrets are set) Docker Hub.
+# Triggers: main, v* tags, releases, workflow_dispatch.
 on:
   push:
     branches: [main]
@@ -15,7 +16,7 @@ permissions:
   id-token: write # cosign keyless signing
 
 env:
-  REGISTRY: ghcr.io
+  GHCR_REGISTRY: ghcr.io
 
 jobs:
   publish:
@@ -25,8 +26,27 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
-      - name: Image name (lowercase for GHCR)
-        run: echo "IMAGE_NAME=${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+      - name: Image names
+        id: names
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+        run: |
+          GHCR="${GITHUB_REPOSITORY,,}"
+          echo "ghcr=${GHCR}" >> "$GITHUB_OUTPUT"
+          {
+            echo "images<<EOF"
+            echo "ghcr.io/${GHCR}"
+            if [ -n "${DOCKERHUB_USERNAME}" ]; then
+              echo "docker.io/${DOCKERHUB_USERNAME}/foxhole"
+              echo "push_dockerhub=true" >> "$GITHUB_OUTPUT"
+              echo "dockerhub=${DOCKERHUB_USERNAME}/foxhole" >> "$GITHUB_OUTPUT"
+            else
+              echo "push_dockerhub=false" >> "$GITHUB_OUTPUT"
+              echo "dockerhub=" >> "$GITHUB_OUTPUT"
+              echo "::notice::DOCKERHUB_USERNAME not set — publishing to GHCR only"
+            fi
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Resolve version
         id: ver
@@ -49,15 +69,22 @@ jobs:
       - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
-          registry: ${{ env.REGISTRY }}
+          registry: ${{ env.GHCR_REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Log in to Docker Hub
+        if: steps.names.outputs.push_dockerhub == 'true'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Docker metadata
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          images: ${{ steps.names.outputs.images }}
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
             type=raw,value=latest,enable=${{ github.event_name == 'release' }}
@@ -83,37 +110,50 @@ jobs:
       - name: Install cosign
         uses: sigstore/cosign-installer@v3
 
-      - name: Sign image (keyless OIDC)
+      - name: Sign image(s) (keyless OIDC)
         env:
           DIGEST: ${{ steps.push.outputs.digest }}
+          PUSH_DOCKERHUB: ${{ steps.names.outputs.push_dockerhub }}
+          DOCKERHUB_IMAGE: ${{ steps.names.outputs.dockerhub }}
+          GHCR_IMAGE: ${{ env.GHCR_REGISTRY }}/${{ steps.names.outputs.ghcr }}
         run: |
           set -euo pipefail
-          IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
-          # Sign by digest for each published tag that resolves to this digest.
-          cosign sign --yes "${IMAGE}@${DIGEST}"
+          cosign sign --yes "${GHCR_IMAGE}@${DIGEST}"
+          if [ "${PUSH_DOCKERHUB}" = "true" ]; then
+            cosign sign --yes "docker.io/${DOCKERHUB_IMAGE}@${DIGEST}"
+          fi
 
       - name: Summary
+        env:
+          PUSH_DOCKERHUB: ${{ steps.names.outputs.push_dockerhub }}
+          DOCKERHUB_IMAGE: ${{ steps.names.outputs.dockerhub }}
+          GHCR_IMAGE: ${{ env.GHCR_REGISTRY }}/${{ steps.names.outputs.ghcr }}
         run: |
           {
             echo "## Published Foxhole image"
             echo ""
-            echo "- Registry: \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}\`"
+            echo "- GHCR: \`${GHCR_IMAGE}\`"
+            if [ "${PUSH_DOCKERHUB}" = "true" ]; then
+              echo "- Docker Hub: \`docker.io/${DOCKERHUB_IMAGE}\`"
+            else
+              echo "- Docker Hub: _skipped_ (set \`DOCKERHUB_USERNAME\` + \`DOCKERHUB_TOKEN\` repo secrets)"
+            fi
             echo "- Version build-arg: \`${{ steps.ver.outputs.version }}\`"
             echo "- Digest: \`${{ steps.push.outputs.digest }}\`"
-            echo "- Cosign: keyless sign applied to image digest"
+            echo "- Cosign: keyless sign applied"
             echo "- Tags:"
             echo '```'
             echo "${{ steps.meta.outputs.tags }}"
             echo '```'
             echo ""
             echo '```bash'
-            echo "docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest"
+            echo "docker pull ${GHCR_IMAGE}:latest"
+            if [ "${PUSH_DOCKERHUB}" = "true" ]; then
+              echo "docker pull ${DOCKERHUB_IMAGE}:latest"
+            fi
             echo "cosign verify \\"
             echo "  --certificate-identity-regexp='https://github.com/jasonflaherty/foxhole/\\.github/workflows/publish-image\\.yml@.*' \\"
             echo "  --certificate-oidc-issuer='https://token.actions.githubusercontent.com' \\"
-            echo "  ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.push.outputs.digest }}"
-            echo "docker run --rm ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest version"
+            echo "  ${GHCR_IMAGE}@${{ steps.push.outputs.digest }}"
             echo '```'
-            echo ""
-            echo "If pulls fail with 403, set the GHCR package visibility to **Public** (Packages → foxhole → Package settings)."
           } >> "$GITHUB_STEP_SUMMARY"

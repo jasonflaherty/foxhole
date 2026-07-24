@@ -9,7 +9,7 @@ evidence—deterministically, with an optional local vuln DB that works offline.
 
 | | |
 |--|--|
-| **Image** | `ghcr.io/jasonflaherty/foxhole` (prefer a version tag, not `:latest`) |
+| **Image** | `ghcr.io/jasonflaherty/foxhole` (and Docker Hub when configured) |
 | **License** | MIT |
 | **Not this** | Not a SaaS dashboard, Dependabot, or image scanner like Trivy |
 
@@ -38,6 +38,7 @@ Or install the binary / pull the image:
 go install github.com/jasonflaherty/foxhole/cmd/foxhole@latest
 # or
 docker pull ghcr.io/jasonflaherty/foxhole:v0.3.0
+# Docker Hub (if published): docker pull <hub-user>/foxhole:v0.3.0
 ```
 
 ## Mental model
