@@ -25,8 +25,21 @@ func NewFilesystemScanner() *FilesystemScanner {
 	return &FilesystemScanner{}
 }
 
+// ScanOptions controls package discovery behavior.
+type ScanOptions struct {
+	// DirectOnly prefers package.json / go.mod direct deps over full lockfiles.
+	DirectOnly bool
+	// MaxPackages caps how many packages are returned (0 = unlimited).
+	MaxPackages int
+}
+
 // Scan walks root and extracts packages from known manifests.
 func (s *FilesystemScanner) Scan(root string) ([]DiscoveredPackage, error) {
+	return s.ScanWithOptions(root, ScanOptions{})
+}
+
+// ScanWithOptions walks root with discovery limits for CI-scale targets.
+func (s *FilesystemScanner) ScanWithOptions(root string, opts ScanOptions) ([]DiscoveredPackage, error) {
 	var pkgs []DiscoveredPackage
 	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
@@ -47,7 +60,18 @@ func (s *FilesystemScanner) Scan(root string) ([]DiscoveredPackage, error) {
 				return err
 			}
 			pkgs = append(pkgs, found...)
+		case "package.json":
+			if opts.DirectOnly {
+				found, err := parsePackageJSON(path)
+				if err != nil {
+					return err
+				}
+				pkgs = append(pkgs, found...)
+			}
 		case "package-lock.json":
+			if opts.DirectOnly {
+				return nil
+			}
 			found, err := parsePackageLock(path)
 			if err != nil {
 				return err
@@ -60,6 +84,9 @@ func (s *FilesystemScanner) Scan(root string) ([]DiscoveredPackage, error) {
 			}
 			pkgs = append(pkgs, found...)
 		case "Cargo.lock":
+			if opts.DirectOnly {
+				return nil
+			}
 			found, err := parseCargoLock(path)
 			if err != nil {
 				return err
@@ -71,7 +98,11 @@ func (s *FilesystemScanner) Scan(root string) ([]DiscoveredPackage, error) {
 	if err != nil {
 		return nil, err
 	}
-	return dedupe(pkgs), nil
+	pkgs = dedupe(pkgs)
+	if opts.MaxPackages > 0 && len(pkgs) > opts.MaxPackages {
+		pkgs = pkgs[:opts.MaxPackages]
+	}
+	return pkgs, nil
 }
 
 func parseGoMod(path string) ([]DiscoveredPackage, error) {
@@ -126,6 +157,46 @@ func parseGoMod(path string) ([]DiscoveredPackage, error) {
 		}
 	}
 	return pkgs, sc.Err()
+}
+
+func parsePackageJSON(path string) ([]DiscoveredPackage, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var pkg struct {
+		Dependencies    map[string]string `json:"dependencies"`
+		DevDependencies map[string]string `json:"devDependencies"`
+	}
+	if err := json.Unmarshal(data, &pkg); err != nil {
+		return nil, err
+	}
+	var out []DiscoveredPackage
+	add := func(deps map[string]string) {
+		for name, ver := range deps {
+			out = append(out, DiscoveredPackage{
+				Ecosystem: "npm",
+				Name:      name,
+				Version:   normalizeNPMVersion(ver),
+				Path:      path,
+			})
+		}
+	}
+	add(pkg.Dependencies)
+	add(pkg.DevDependencies)
+	return out, nil
+}
+
+func normalizeNPMVersion(ver string) string {
+	ver = strings.TrimSpace(ver)
+	for _, p := range []string{">=", "<=", "^", "~", ">", "<", "="} {
+		ver = strings.TrimPrefix(ver, p)
+	}
+	ver = strings.TrimSpace(ver)
+	if ver == "" || strings.ContainsAny(ver, " |*") {
+		return ""
+	}
+	return ver
 }
 
 func parsePackageLock(path string) ([]DiscoveredPackage, error) {

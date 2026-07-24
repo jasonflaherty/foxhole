@@ -49,9 +49,18 @@ See [examples/foxhole.yaml](examples/foxhole.yaml).
 ```bash
 foxhole .                     # scan path
 foxhole db update             # refresh NVD + OSV into SQLite
+foxhole db update ./app --direct-only --max-packages 60
 foxhole db verify             # verify provider SHA256 hashes
 foxhole version
 ```
+
+### Scan a known-vulnerable app (CI)
+
+GitHub Actions workflow [vulnerable-target-scan.yml](.github/workflows/vulnerable-target-scan.yml) builds Foxhole and scans **OWASP Juice Shop** or **NodeGoat**.
+
+- **Actions → Vulnerable target scan → Run workflow**
+- Weekly schedule (Mondays)
+- Uploads `scan-results.txt` as an artifact
 
 ## Development
 

@@ -1,0 +1,129 @@
+name: Vulnerable target scan
+
+# Build Foxhole and scan a known-vulnerable open-source app (OWASP Juice Shop or NodeGoat).
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Vulnerable project to scan
+        type: choice
+        required: true
+        default: juice-shop
+        options:
+          - juice-shop
+          - nodegoat
+      max_packages:
+        description: Max packages to query from OSV (keeps CI bounded)
+        type: string
+        required: false
+        default: "60"
+  schedule:
+    # Weekly Monday 07:00 UTC
+    - cron: "0 7 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      FOXHOLE_DB_PATH: ${{ github.workspace }}/.foxhole/foxhole.db
+      TARGET_NAME: ${{ github.event.inputs.target || 'juice-shop' }}
+      MAX_PACKAGES: ${{ github.event.inputs.max_packages || '60' }}
+
+    steps:
+      - name: Checkout Foxhole
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22.12"
+          cache: true
+
+      - name: Build foxhole
+        run: |
+          go build -o bin/foxhole ./cmd/foxhole
+          ./bin/foxhole version
+
+      - name: Resolve vulnerable target
+        id: target
+        run: |
+          case "${TARGET_NAME}" in
+            juice-shop)
+              echo "repo=https://github.com/juice-shop/juice-shop.git" >> "$GITHUB_OUTPUT"
+              echo "ref=v17.3.0" >> "$GITHUB_OUTPUT"
+              echo "dir=targets/juice-shop" >> "$GITHUB_OUTPUT"
+              ;;
+            nodegoat)
+              echo "repo=https://github.com/OWASP/NodeGoat.git" >> "$GITHUB_OUTPUT"
+              echo "ref=master" >> "$GITHUB_OUTPUT"
+              echo "dir=targets/nodegoat" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "Unknown target: ${TARGET_NAME}" >&2
+              exit 1
+              ;;
+          esac
+
+      - name: Clone vulnerable repo (shallow)
+        run: |
+          mkdir -p targets
+          git clone --depth 1 --branch "${{ steps.target.outputs.ref }}" \
+            "${{ steps.target.outputs.repo }}" \
+            "${{ steps.target.outputs.dir }}"
+
+      - name: Update vulnerability DB (OSV direct deps + recent NVD)
+        run: |
+          mkdir -p "$(dirname "$FOXHOLE_DB_PATH")"
+          ./bin/foxhole db update "${{ steps.target.outputs.dir }}" \
+            --db-path "$FOXHOLE_DB_PATH" \
+            --direct-only \
+            --max-packages "$MAX_PACKAGES"
+
+      - name: Scan target with Foxhole
+        id: scan
+        run: |
+          set -o pipefail
+          ./bin/foxhole "${{ steps.target.outputs.dir }}" \
+            --db-path "$FOXHOLE_DB_PATH" \
+            --offline \
+            | tee scan-results.txt
+
+          FINDINGS="$(sed -n 's/.*Findings: \([0-9][0-9]*\).*/\1/p' scan-results.txt | head -n 1)"
+          FINDINGS="${FINDINGS:-0}"
+          echo "findings=${FINDINGS}" >> "$GITHUB_OUTPUT"
+
+          {
+            echo "## Foxhole scan: ${TARGET_NAME}"
+            echo ""
+            echo "- Repo: \`${{ steps.target.outputs.repo }}\`"
+            echo "- Ref: \`${{ steps.target.outputs.ref }}\`"
+            echo "- Max OSV packages: \`${MAX_PACKAGES}\`"
+            echo "- **Findings:** ${FINDINGS}"
+            echo ""
+            echo '```'
+            head -n 40 scan-results.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload scan results
+        uses: actions/upload-artifact@v4
+        with:
+          name: foxhole-${{ env.TARGET_NAME }}-scan
+          path: |
+            scan-results.txt
+            ${{ env.FOXHOLE_DB_PATH }}
+          if-no-files-found: error
+
+      - name: Expect at least one finding
+        run: |
+          FINDINGS="${{ steps.scan.outputs.findings }}"
+          echo "Findings counted: ${FINDINGS}"
+          if [ "${FINDINGS}" -lt 1 ]; then
+            echo "::error::Expected vulnerabilities in ${TARGET_NAME}, but Foxhole reported 0 findings."
+            echo "The DB update may have been rate-limited or packages were skipped."
+            exit 1
+          fi

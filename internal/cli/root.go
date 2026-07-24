@@ -104,9 +104,11 @@ func newDBCommand(v *viper.Viper) *cobra.Command {
 		Use:   "db",
 		Short: "Manage the local vulnerability database",
 	}
-	dbCmd.AddCommand(&cobra.Command{
-		Use:   "update",
+
+	updateCmd := &cobra.Command{
+		Use:   "update [path]",
 		Short: "Update NVD and OSV provider data",
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			_ = v.BindPFlags(cmd.Flags())
 			_ = v.BindPFlags(cmd.Root().PersistentFlags())
@@ -114,9 +116,19 @@ func newDBCommand(v *viper.Viper) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return runDBUpdate(cmd, cfg)
+			target := "."
+			if len(args) == 1 {
+				target = args[0]
+			}
+			maxPkgs, _ := cmd.Flags().GetInt("max-packages")
+			directOnly, _ := cmd.Flags().GetBool("direct-only")
+			return runDBUpdate(cmd, cfg, target, maxPkgs, directOnly)
 		},
-	})
+	}
+	updateCmd.Flags().Int("max-packages", 0, "limit packages queried from OSV (0 = unlimited)")
+	updateCmd.Flags().Bool("direct-only", false, "use package.json / go.mod direct deps instead of full lockfiles")
+	dbCmd.AddCommand(updateCmd)
+
 	dbCmd.AddCommand(&cobra.Command{
 		Use:   "verify",
 		Short: "Verify provider content hashes",
@@ -132,21 +144,34 @@ func newDBCommand(v *viper.Viper) *cobra.Command {
 	return dbCmd
 }
 
-func runDBUpdate(cmd *cobra.Command, cfg *config.Config) error {
+func runDBUpdate(cmd *cobra.Command, cfg *config.Config, target string, maxPackages int, directOnly bool) error {
 	database, err := db.Open(expandPath(cfg.DBPath))
 	if err != nil {
 		return err
 	}
 	defer func() { _ = database.Close() }()
 
-	// Discover packages in cwd so OSV can fetch relevant advisories online.
+	abs, err := filepath.Abs(target)
+	if err != nil {
+		return err
+	}
+
+	// Discover packages so OSV can fetch relevant advisories online.
 	var pkgs []provider.PackageQuery
 	if !cfg.Offline {
 		fs := scan.NewFilesystemScanner()
-		discovered, err := fs.Scan(".")
+		discovered, err := fs.ScanWithOptions(abs, scan.ScanOptions{
+			DirectOnly:  directOnly,
+			MaxPackages: maxPackages,
+		})
 		if err != nil {
 			logger.L().Warn("package discovery failed", zap.Error(err))
 		} else {
+			logger.L().Info("discovered packages for update",
+				zap.String("target", abs),
+				zap.Int("count", len(discovered)),
+				zap.Bool("direct_only", directOnly),
+			)
 			for _, p := range discovered {
 				pkgs = append(pkgs, provider.PackageQuery{
 					Ecosystem: p.Ecosystem,
