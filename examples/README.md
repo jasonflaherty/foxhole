@@ -38,6 +38,7 @@ go build -o bin/foxhole ./cmd/foxhole
 | Workflow | Purpose |
 |----------|---------|
 | [ci.yml](../.github/workflows/ci.yml) | `go test` + golangci-lint on every PR/push |
+| [publish-image.yml](../.github/workflows/publish-image.yml) | Build/push `ghcr.io/jasonflaherty/foxhole:latest` (+ version tags) |
 | [capabilities-demo.yml](../.github/workflows/capabilities-demo.yml) | Full product tour (reports, archive, policy, notify mock, API) |
 | [phase2-findings-demo.yml](../.github/workflows/phase2-findings-demo.yml) | Focused secret + EOL assertion |
 | [vulnerable-target-scan.yml](../.github/workflows/vulnerable-target-scan.yml) | Optional Juice Shop / NodeGoat online scan |

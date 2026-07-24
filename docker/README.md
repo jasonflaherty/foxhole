@@ -2,11 +2,29 @@
 
 Works with **Docker** or **Podman** (commands are interchangeable). Prefer Podman if both are installed — `./docker/run-demo.sh` picks it automatically.
 
+## Pull published image (GHCR)
+
+Pushed by [publish-image.yml](../.github/workflows/publish-image.yml) on `main` (`:latest`) and on `v*` tags / GitHub Releases.
+
+```bash
+docker pull ghcr.io/jasonflaherty/foxhole:latest
+# or: podman pull ghcr.io/jasonflaherty/foxhole:latest
+
+docker run --rm ghcr.io/jasonflaherty/foxhole:latest version
+
+docker run --rm \
+  -v foxhole-data:/var/lib/foxhole \
+  -v "$PWD:/work:ro" \
+  ghcr.io/jasonflaherty/foxhole:latest /work --offline
+```
+
+If the package is private the first time, open **GitHub → Packages → foxhole → Package settings** and set visibility to **Public**.
+
 ## Images
 
 | File | Image | Purpose |
 |------|-------|---------|
-| [Dockerfile.cli](Dockerfile.cli) | `foxhole` | CLI + `foxhole serve` |
+| [Dockerfile.cli](Dockerfile.cli) | `foxhole` / `ghcr.io/jasonflaherty/foxhole` | CLI + `foxhole serve` |
 | [Dockerfile.demo](Dockerfile.demo) | `foxhole-go-demo` | Offline scan of [examples/go-demo](../examples/go-demo) |
 
 Data volume: `/var/lib/foxhole` (`FOXHOLE_DB_PATH=/var/lib/foxhole/foxhole.db`)

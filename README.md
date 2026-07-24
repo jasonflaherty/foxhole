@@ -23,6 +23,11 @@ foxhole . --archive
 ### Container demo (Docker or Podman)
 
 ```bash
+# Published CLI image (after Actions → Publish container image runs on main)
+docker pull ghcr.io/jasonflaherty/foxhole:latest
+docker run --rm ghcr.io/jasonflaherty/foxhole:latest version
+
+# Local offline go-demo
 docker build -t foxhole-go-demo -f docker/Dockerfile.demo .
 docker run --rm foxhole-go-demo
 
@@ -30,7 +35,7 @@ docker run --rm foxhole-go-demo
 #     podman run --rm foxhole-go-demo
 ```
 
-See [docker/README.md](docker/README.md) for the CLI image and volume mounts.
+See [docker/README.md](docker/README.md) for the CLI image, GHCR pull, and volume mounts.
 
 ## Configuration
 

@@ -1,6 +1,8 @@
 # foxhole-cli — offline-first supply chain scanner
 # Build: docker build -t foxhole -f docker/Dockerfile.cli .
 #    or: podman build -t foxhole -f docker/Dockerfile.cli .
+#
+# Published image: ghcr.io/jasonflaherty/foxhole:latest
 
 FROM golang:1.22-alpine AS build
 WORKDIR /src
@@ -8,7 +10,8 @@ RUN apk add --no-cache git ca-certificates
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o /out/foxhole ./cmd/foxhole
+ARG VERSION=0.1.0-dev
+RUN CGO_ENABLED=0 go build -ldflags="-s -w -X github.com/jasonflaherty/foxhole/internal/version.Version=${VERSION}" -o /out/foxhole ./cmd/foxhole
 
 FROM alpine:3.20
 RUN apk add --no-cache ca-certificates \
