@@ -43,8 +43,22 @@ Living checklist aligned with [Foxhole_Design_Book.md](Foxhole_Design_Book.md).
 - [x] `Dockerfile.server` for API image
 - [x] GHCR publish workflow (`:latest` + version tags)
 
+### Enterprise readiness — Phase A (near-term Jenkins ROI)
+- [x] Image pin (tag/digest) + optional cosign in Jenkins docs
+- [x] Stale-DB gate (`last_sync_at`, `--max-db-age` / `FOXHOLE_MAX_DB_AGE`, exit **1**)
+- [x] `--split-reports` per-kind JSON artifacts
+- [x] Policy suppressions with `until` / `ticket` / `reason` (+ legacy `ignore`)
+- [x] Jenkins shared library step `foxholeScan` + Warnings NG / HTML Publisher docs
+
+### Enterprise readiness — Phase B (medium-term)
+- [x] `foxhole serve` Bearer token (`FOXHOLE_API_TOKEN`) on mutating/history routes
+- [x] Stable JSON/webhook export envelope (`schema_version` 1.0.0)
+- [x] Manifest-declared license signal (npm `package.json`) with LICENSE-file fallback
+- [x] `--policy-dir` org policy pack merge
+
 ## Later / deeper
 
 - Full online EPSS CSV bulk import; richer SBOM ingestion
 - Organization multi-tenant dashboard and scheduled scans
 - Automated PR creation for dependency upgrades
+- Reachability analysis; multi-tenant SaaS; replacing Dependabot/Trivy

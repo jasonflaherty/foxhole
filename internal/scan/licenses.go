@@ -50,8 +50,30 @@ func ScanLicenses(ctx context.Context, store *db.DB, root string, pkgs []Discove
 		}
 	}
 
-	// Declared licenses on discovered packages (when present in path names — lightweight)
+	// Declared licenses on discovered packages (manifest metadata preferred).
 	for _, pkg := range pkgs {
+		declared := strings.ToUpper(strings.TrimSpace(pkg.License))
+		if declared != "" {
+			for key, rec := range riskSet {
+				if key == "" || (rec.Risk != "high" && rec.Risk != "medium") {
+					continue
+				}
+				if declared == key || strings.Contains(declared, key) {
+					out = append(out, Finding{
+						Kind:     KindLicense,
+						Package:  pkg,
+						Path:     pkg.Path,
+						RuleID:   "license-declared-" + rec.ID,
+						License:  firstNonEmpty(rec.SPDX, rec.ID, pkg.License),
+						Summary:  "Declared package license " + pkg.License + " matches risk profile " + rec.Name,
+						Severity: rec.Risk,
+						Source:   "licenses",
+					})
+					break
+				}
+			}
+			continue
+		}
 		cand := strings.ToUpper(pkg.Name)
 		for key, rec := range riskSet {
 			if key == "" || rec.Risk != "high" {

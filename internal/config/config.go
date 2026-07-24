@@ -19,21 +19,25 @@ const (
 
 // Config holds runtime configuration for Foxhole.
 type Config struct {
-	DBPath      string `mapstructure:"db_path"`
-	Offline     bool   `mapstructure:"offline"`
-	LogLevel    string `mapstructure:"log_level"`
-	ArchiveDir  string `mapstructure:"archive_dir"`
-	Report      string `mapstructure:"report"`
-	NVDAPIKey   string `mapstructure:"nvd_api_key"`
-	Secrets     bool   `mapstructure:"secrets"`
-	EOL         bool   `mapstructure:"eol"`
-	Misconfig   bool   `mapstructure:"misconfig"`
-	Licenses    bool   `mapstructure:"licenses"`
-	Enrich      bool   `mapstructure:"enrich"`
-	FailOn      string `mapstructure:"fail_on"`
-	PolicyPath  string `mapstructure:"policy"`
-	Remediate   bool   `mapstructure:"remediate"`
-	RemediateAI bool   `mapstructure:"remediate_ai"`
+	DBPath       string `mapstructure:"db_path"`
+	Offline      bool   `mapstructure:"offline"`
+	LogLevel     string `mapstructure:"log_level"`
+	ArchiveDir   string `mapstructure:"archive_dir"`
+	Report       string `mapstructure:"report"`
+	NVDAPIKey    string `mapstructure:"nvd_api_key"`
+	Secrets      bool   `mapstructure:"secrets"`
+	EOL          bool   `mapstructure:"eol"`
+	Misconfig    bool   `mapstructure:"misconfig"`
+	Licenses     bool   `mapstructure:"licenses"`
+	Enrich       bool   `mapstructure:"enrich"`
+	FailOn       string `mapstructure:"fail_on"`
+	PolicyPath   string `mapstructure:"policy"`
+	PolicyDir    string `mapstructure:"policy_dir"`
+	Remediate    bool   `mapstructure:"remediate"`
+	RemediateAI  bool   `mapstructure:"remediate_ai"`
+	SplitReports bool   `mapstructure:"split_reports"`
+	MaxDBAge     string `mapstructure:"max_db_age"` // Go duration, e.g. 720h; empty disables
+	APIToken     string `mapstructure:"api_token"`
 }
 
 // DefaultDBPath returns the default SQLite database path.
@@ -73,6 +77,10 @@ func Load() (*Config, error) {
 	v.SetDefault("policy", "")
 	v.SetDefault("remediate", false)
 	v.SetDefault("remediate_ai", false)
+	v.SetDefault("split_reports", false)
+	v.SetDefault("max_db_age", "")
+	v.SetDefault("policy_dir", "")
+	v.SetDefault("api_token", "")
 
 	if err := v.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
@@ -113,6 +121,10 @@ func NewViper() *viper.Viper {
 	v.SetDefault("policy", "")
 	v.SetDefault("remediate", false)
 	v.SetDefault("remediate_ai", false)
+	v.SetDefault("split_reports", false)
+	v.SetDefault("max_db_age", "")
+	v.SetDefault("policy_dir", "")
+	v.SetDefault("api_token", "")
 	return v
 }
 

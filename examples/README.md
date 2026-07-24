@@ -6,9 +6,10 @@ Fixtures and configs used by local demos and GitHub Actions.
 |------|---------------|----------|
 | [go-demo](go-demo/) | Offline NVD/OSV vuln match (`github.com/vulnerable/lib`) | [capabilities-demo.yml](../.github/workflows/capabilities-demo.yml), Docker/Podman demo |
 | [phase2-findings](phase2-findings/) | Secret + EOL findings | [phase2-findings-demo.yml](../.github/workflows/phase2-findings-demo.yml), capabilities demo |
-| [policy.yaml](policy.yaml) | CI fail-on policy (`exit 2`) | capabilities demo |
+| [policy.yaml](policy.yaml) | CI fail-on policy (`exit 2`) + suppressions | capabilities demo |
+| [policy-pack/](policy-pack/) | Org policy pack merge (`--policy-dir`) | — |
 | [foxhole.yaml](foxhole.yaml) | Sample config file | — |
-| [jenkins/](jenkins/) | Jenkins Declarative Pipeline + policy | — |
+| [jenkins/](jenkins/) | Jenkins Declarative Pipeline, shared lib, cosign pins | — |
 
 ## Quick local runs
 

@@ -58,12 +58,15 @@ func TestJSONAndSARIF(t *testing.T) {
 	if err := (report.JSON{}).Write(&buf, sampleResult()); err != nil {
 		t.Fatal(err)
 	}
-	var decoded scan.Result
-	if err := json.Unmarshal(buf.Bytes(), &decoded); err != nil {
+	var env report.Envelope
+	if err := json.Unmarshal(buf.Bytes(), &env); err != nil {
 		t.Fatal(err)
 	}
-	if len(decoded.Findings) != 1 {
-		t.Fatalf("findings = %d", len(decoded.Findings))
+	if env.SchemaVersion != report.SchemaVersion || env.Tool != "foxhole" || env.Result == nil {
+		t.Fatalf("envelope = %+v", env)
+	}
+	if len(env.Result.Findings) != 1 {
+		t.Fatalf("findings = %d", len(env.Result.Findings))
 	}
 
 	buf.Reset()

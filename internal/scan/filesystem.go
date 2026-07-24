@@ -15,6 +15,7 @@ type DiscoveredPackage struct {
 	Name      string
 	Version   string
 	Path      string
+	License   string // SPDX or declared license from manifest when known
 }
 
 // FilesystemScanner discovers dependencies from common lock/manifest files.
@@ -163,12 +164,14 @@ func parsePackageJSON(path string) ([]DiscoveredPackage, error) {
 		return nil, err
 	}
 	var pkg struct {
+		License         any               `json:"license"`
 		Dependencies    map[string]string `json:"dependencies"`
 		DevDependencies map[string]string `json:"devDependencies"`
 	}
 	if err := json.Unmarshal(data, &pkg); err != nil {
 		return nil, err
 	}
+	rootLicense := stringifyLicense(pkg.License)
 	var out []DiscoveredPackage
 	add := func(deps map[string]string) {
 		for name, ver := range deps {
@@ -182,7 +185,29 @@ func parsePackageJSON(path string) ([]DiscoveredPackage, error) {
 	}
 	add(pkg.Dependencies)
 	add(pkg.DevDependencies)
+	// Also record the root package license as a synthetic signal when present.
+	if rootLicense != "" {
+		out = append(out, DiscoveredPackage{
+			Ecosystem: "npm",
+			Name:      filepath.Base(filepath.Dir(path)),
+			Version:   "",
+			Path:      path,
+			License:   rootLicense,
+		})
+	}
 	return out, nil
+}
+
+func stringifyLicense(v any) string {
+	switch t := v.(type) {
+	case string:
+		return strings.TrimSpace(t)
+	case map[string]any:
+		if typ, ok := t["type"].(string); ok {
+			return strings.TrimSpace(typ)
+		}
+	}
+	return ""
 }
 
 func normalizeNPMVersion(ver string) string {

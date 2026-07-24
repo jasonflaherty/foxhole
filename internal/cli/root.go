@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
+	"time"
 
 	"github.com/jasonflaherty/foxhole/internal/archive"
 	"github.com/jasonflaherty/foxhole/internal/config"
@@ -80,8 +82,11 @@ func NewRootCommand() *cobra.Command {
 	root.Flags().Bool("remediate", false, "write remediation suggestions (markdown+json)")
 	root.Flags().Bool("remediate-ai", false, "enrich remediation with OpenAI-compatible API")
 	root.Flags().String("fail-on", "", "fail CI if findings at or above severity (critical|high|medium|low|info|any)")
-	root.Flags().String("policy", "", "path to policy YAML (fail_on, kinds, ignore)")
+	root.Flags().String("policy", "", "path to policy YAML (fail_on, kinds, ignore, suppressions)")
+	root.Flags().String("policy-dir", "", "merge all *.yaml policy files in directory (org policy packs)")
 	root.Flags().StringSlice("fail-on-kind", nil, "limit policy to finding kinds; repeatable")
+	root.Flags().Bool("split-reports", false, "also write per-kind JSON: foxhole-vulns.json, foxhole-secrets.json, …")
+	root.Flags().String("max-db-age", "", "fail scan (exit 1) if vulnerability DB older than duration (e.g. 720h); empty disables")
 
 	_ = v.BindPFlag("db_path", root.PersistentFlags().Lookup("db-path"))
 	_ = v.BindPFlag("offline", root.PersistentFlags().Lookup("offline"))
@@ -96,8 +101,11 @@ func NewRootCommand() *cobra.Command {
 	_ = v.BindPFlag("archive_dir", root.Flags().Lookup("archive-dir"))
 	_ = v.BindPFlag("fail_on", root.Flags().Lookup("fail-on"))
 	_ = v.BindPFlag("policy", root.Flags().Lookup("policy"))
+	_ = v.BindPFlag("policy_dir", root.Flags().Lookup("policy-dir"))
 	_ = v.BindPFlag("remediate", root.Flags().Lookup("remediate"))
 	_ = v.BindPFlag("remediate_ai", root.Flags().Lookup("remediate-ai"))
+	_ = v.BindPFlag("split_reports", root.Flags().Lookup("split-reports"))
+	_ = v.BindPFlag("max_db_age", root.Flags().Lookup("max-db-age"))
 
 	root.AddCommand(newDBCommand(v))
 	root.AddCommand(newVersionCommand())
@@ -125,6 +133,10 @@ func runScan(cmd *cobra.Command, args []string) error {
 	defer func() { _ = database.Close() }()
 
 	if err := ensurePhase2Data(cmd.Context(), database); err != nil {
+		return err
+	}
+
+	if err := checkDBFreshness(cmd, database, cfg.MaxDBAge); err != nil {
 		return err
 	}
 
@@ -171,6 +183,13 @@ func runScan(cmd *cobra.Command, args []string) error {
 	if err := report.WriteAll(formats, result, cmd.OutOrStdout(), "."); err != nil {
 		_ = database.FinishScanHistory(cmd.Context(), histID, len(result.Findings), "", "[]", "error")
 		return err
+	}
+
+	if cfg.SplitReports {
+		if err := report.WriteSplitJSON(result, ".", cmd.OutOrStdout()); err != nil {
+			_ = database.FinishScanHistory(cmd.Context(), histID, len(result.Findings), "", "[]", "error")
+			return fmt.Errorf("split reports: %w", err)
+		}
 	}
 
 	reportPath := ""
@@ -239,6 +258,7 @@ func runScan(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	decision := policy.Evaluate(pol, result.Findings)
+	policy.WriteSuppressionWarnings(cmd.ErrOrStderr(), decision)
 	if decision.Failed {
 		policy.Write(cmd.ErrOrStderr(), decision)
 		return &ExitError{Code: decision.ExitCode(), Err: decision}
@@ -246,15 +266,59 @@ func runScan(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+func checkDBFreshness(cmd *cobra.Command, database *db.DB, maxAgeRaw string) error {
+	maxAgeRaw = strings.TrimSpace(maxAgeRaw)
+	if maxAgeRaw == "" || maxAgeRaw == "0" || maxAgeRaw == "off" || maxAgeRaw == "none" {
+		return nil
+	}
+	maxAge, err := time.ParseDuration(maxAgeRaw)
+	if err != nil {
+		return fmt.Errorf("invalid --max-db-age %q: %w", maxAgeRaw, err)
+	}
+	if maxAge <= 0 {
+		return nil
+	}
+	synced, ok, err := database.LastSyncAt(cmd.Context())
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return &ExitError{
+			Code: 1,
+			Err:  fmt.Errorf("vulnerability DB has no last_sync_at; run foxhole db update (max-db-age %s)", maxAge),
+		}
+	}
+	age := time.Since(synced)
+	if age > maxAge {
+		return &ExitError{
+			Code: 1,
+			Err: fmt.Errorf("vulnerability DB is stale: last sync %s (%s ago), max-db-age %s; run foxhole db update",
+				synced.Format(time.RFC3339), age.Round(time.Minute), maxAge),
+		}
+	}
+	return nil
+}
+
 func loadScanPolicy(cfg *config.Config, cmd *cobra.Command) (policy.Policy, error) {
 	var base policy.Policy
+	if dir := cfg.PolicyDir; dir != "" {
+		loaded, err := policy.LoadDir(expandPath(dir))
+		if err != nil {
+			return policy.Policy{}, err
+		}
+		base = loaded
+	}
 	path := cfg.PolicyPath
 	if path != "" {
 		loaded, err := policy.LoadFile(expandPath(path))
 		if err != nil {
 			return policy.Policy{}, err
 		}
-		base = loaded
+		if cfg.PolicyDir != "" {
+			base = policy.MergePolicies(base, loaded)
+		} else {
+			base = loaded
+		}
 	}
 	kinds, _ := cmd.Flags().GetStringSlice("fail-on-kind")
 	return policy.Merge(base, cfg.FailOn, kinds), nil
@@ -404,6 +468,14 @@ func runDBVerify(cmd *cobra.Command, cfg *config.Config) error {
 		return fmt.Errorf("database sha256 mismatch")
 	}
 	fmt.Fprintln(cmd.OutOrStdout(), "database integrity: ok")
+	if synced, ok, err := database.LastSyncAt(cmd.Context()); err != nil {
+		return err
+	} else if ok {
+		fmt.Fprintf(cmd.OutOrStdout(), "last sync: %s (%s ago)\n",
+			synced.Format(time.RFC3339), time.Since(synced).Round(time.Minute))
+	} else {
+		fmt.Fprintln(cmd.OutOrStdout(), "last sync: unknown (run foxhole db update)")
+	}
 	return nil
 }
 

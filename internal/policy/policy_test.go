@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jasonflaherty/foxhole/internal/policy"
 	"github.com/jasonflaherty/foxhole/internal/scan"
@@ -91,5 +92,60 @@ func TestMerge(t *testing.T) {
 	p := policy.Merge(policy.Policy{FailOn: "low", Kinds: []string{"vuln"}}, "high", []string{"secret"})
 	if p.FailOn != "high" || len(p.Kinds) != 1 || p.Kinds[0] != "secret" {
 		t.Fatalf("merge = %+v", p)
+	}
+}
+
+func TestSuppressionsExpiry(t *testing.T) {
+	findings := []scan.Finding{
+		{Kind: scan.KindVuln, VulnID: "CVE-2024-0001", Severity: "high", Summary: "a", Source: "nvd"},
+		{Kind: scan.KindVuln, VulnID: "CVE-2024-0002", Severity: "high", Summary: "b", Source: "nvd"},
+	}
+	now, err := time.Parse(time.RFC3339, "2026-06-01T12:00:00Z")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := policy.Policy{
+		FailOn: "high",
+		Suppressions: []policy.Suppression{
+			{ID: "CVE-2024-0001", Until: "2026-12-01", Ticket: "SEC-1", Reason: "vendor patch"},
+			{ID: "CVE-2024-0002", Until: "2025-01-01", Ticket: "SEC-2", Reason: "expired"},
+		},
+	}
+	r := policy.EvaluateAt(p, findings, now)
+	if !r.Failed || len(r.Violations) != 1 || r.Violations[0].VulnID != "CVE-2024-0002" {
+		t.Fatalf("result = %+v", r)
+	}
+	if len(r.UsedSupp) != 1 || r.UsedSupp[0].Ticket != "SEC-1" {
+		t.Fatalf("used = %+v", r.UsedSupp)
+	}
+}
+
+func TestLoadDirMerge(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, body string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("secrets.yaml", "fail_on: medium\nkinds:\n  - secret\n")
+	write("vulns.yaml", "fail_on: high\nkinds:\n  - vuln\nsuppressions:\n  - id: CVE-1\n    until: \"2099-01-01\"\n    ticket: T-1\n    reason: ok\n")
+	p, err := policy.LoadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// medium is stricter than high (fails on more severities)
+	if p.FailOn != "medium" {
+		t.Fatalf("fail_on = %q want medium", p.FailOn)
+	}
+	kindSet := map[string]bool{}
+	for _, k := range p.Kinds {
+		kindSet[k] = true
+	}
+	if !kindSet["secret"] || !kindSet["vuln"] {
+		t.Fatalf("kinds = %#v", p.Kinds)
+	}
+	if len(p.Suppressions) != 1 || p.Suppressions[0].Ticket != "T-1" {
+		t.Fatalf("suppressions = %+v", p.Suppressions)
 	}
 }

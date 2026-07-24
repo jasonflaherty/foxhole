@@ -5,23 +5,13 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
 	"github.com/jasonflaherty/foxhole/internal/scan"
 )
 
 // ExitPolicy is the process exit code when a policy gate fails.
 const ExitPolicy = 2
-
-// Policy describes when a scan should fail.
-type Policy struct {
-	// FailOn is the minimum severity that fails the gate.
-	// Values: critical, high, medium, low, info, any, none (or empty = disabled).
-	FailOn string `yaml:"fail_on" json:"fail_on"`
-	// Kinds limits which finding kinds are considered (empty = all).
-	Kinds []string `yaml:"kinds" json:"kinds"`
-	// Ignore is a set of finding IDs that never fail the gate.
-	Ignore []string `yaml:"ignore" json:"ignore"`
-}
 
 // Enabled reports whether the policy will evaluate findings.
 func (p Policy) Enabled() bool {
@@ -34,6 +24,7 @@ type Result struct {
 	Failed     bool
 	Violations []scan.Finding
 	Message    string
+	UsedSupp   []Suppression // suppressions that matched findings
 }
 
 // Error implements error when the policy gate fails.
@@ -54,6 +45,11 @@ func (r Result) ExitCode() int {
 
 // Evaluate applies the policy to scan findings.
 func Evaluate(p Policy, findings []scan.Finding) Result {
+	return EvaluateAt(p, findings, time.Now().UTC())
+}
+
+// EvaluateAt is Evaluate with an explicit clock (for tests).
+func EvaluateAt(p Policy, findings []scan.Finding, now time.Time) Result {
 	if !p.Enabled() {
 		return Result{}
 	}
@@ -66,17 +62,13 @@ func Evaluate(p Policy, findings []scan.Finding) Result {
 			kindSet[k] = struct{}{}
 		}
 	}
-	ignore := make(map[string]struct{}, len(p.Ignore))
-	for _, id := range p.Ignore {
-		id = strings.TrimSpace(id)
-		if id != "" {
-			ignore[id] = struct{}{}
-		}
-	}
+	active, _ := ActiveSuppressions(p, now)
+	used := map[string]Suppression{}
 
 	var violations []scan.Finding
 	for _, f := range findings {
-		if _, skip := ignore[f.ID()]; skip {
+		if s, skip := active[f.ID()]; skip {
+			used[f.ID()] = s
 			continue
 		}
 		if len(kindSet) > 0 {
@@ -89,8 +81,13 @@ func Evaluate(p Policy, findings []scan.Finding) Result {
 		}
 	}
 
+	var usedList []Suppression
+	for _, s := range used {
+		usedList = append(usedList, s)
+	}
+
 	if len(violations) == 0 {
-		return Result{}
+		return Result{UsedSupp: usedList}
 	}
 
 	label := threshold
@@ -101,6 +98,7 @@ func Evaluate(p Policy, findings []scan.Finding) Result {
 		Failed:     true,
 		Violations: violations,
 		Message:    fmt.Sprintf("policy failed: %d finding(s) at or above %s", len(violations), label),
+		UsedSupp:   usedList,
 	}
 }
 
@@ -121,6 +119,15 @@ func Write(w io.Writer, r Result) {
 	}
 	if len(r.Violations) > limit {
 		fmt.Fprintf(w, "  - …and %d more\n", len(r.Violations)-limit)
+	}
+}
+
+// WriteSuppressionWarnings prints active suppressions that matched findings.
+func WriteSuppressionWarnings(w io.Writer, r Result) {
+	for _, s := range r.UsedSupp {
+		if s.Ticket != "" || s.Until != "" {
+			fmt.Fprintf(w, "suppressed %s (ticket=%s until=%s): %s\n", s.ID, s.Ticket, s.Until, s.Reason)
+		}
 	}
 }
 

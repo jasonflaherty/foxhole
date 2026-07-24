@@ -11,7 +11,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jasonflaherty/foxhole/internal/report"
 	"github.com/jasonflaherty/foxhole/internal/scan"
+	"github.com/jasonflaherty/foxhole/internal/version"
 )
 
 // SlackNotifier posts to an Incoming Webhook.
@@ -79,11 +81,13 @@ func (w WebhookNotifier) Notify(ctx context.Context, result *scan.Result) error 
 	if client == nil {
 		client = http.DefaultClient
 	}
+	env := report.WrapResult(result)
 	payload := map[string]any{
-		"summary":  SummaryLine(result),
-		"target":   result.Target,
-		"packages": result.Packages,
-		"findings": result.Findings,
+		"schema_version": env.SchemaVersion,
+		"tool":           env.Tool,
+		"tool_version":   version.Version,
+		"summary":        SummaryLine(result),
+		"result":         env.Result,
 	}
 	return postJSON(ctx, client, w.URL, payload)
 }

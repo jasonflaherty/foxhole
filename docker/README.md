@@ -7,15 +7,28 @@ Works with **Docker** or **Podman** (commands are interchangeable). Prefer Podma
 Pushed by [publish-image.yml](../.github/workflows/publish-image.yml) on `main` (`:latest`) and on `v*` tags / GitHub Releases.
 
 ```bash
-docker pull ghcr.io/jasonflaherty/foxhole:latest
-# or: podman pull ghcr.io/jasonflaherty/foxhole:latest
+# Prefer a version tag (or digest) for CI — not :latest
+docker pull ghcr.io/jasonflaherty/foxhole:v0.2.0
+# Immutable pin:
+# docker pull ghcr.io/jasonflaherty/foxhole@sha256:<digest>
 
-docker run --rm ghcr.io/jasonflaherty/foxhole:latest version
+docker run --rm ghcr.io/jasonflaherty/foxhole:v0.2.0 version
 
 docker run --rm \
   -v foxhole-data:/var/lib/foxhole \
   -v "$PWD:/work:ro" \
-  ghcr.io/jasonflaherty/foxhole:latest /work --offline
+  ghcr.io/jasonflaherty/foxhole:v0.2.0 /work --offline
+```
+
+### Cosign verify (optional)
+
+When `FOXHOLE_REQUIRE_COSIGN=true` in Jenkins, the agent must have
+[cosign](https://docs.sigstore.dev/cosign/system_config/installation/) installed.
+See [examples/jenkins/README.md](../examples/jenkins/README.md).
+
+```bash
+cosign verify --certificate-identity-regexp='.*' --certificate-oidc-issuer-regexp='.*' \
+  ghcr.io/jasonflaherty/foxhole:v0.2.0
 ```
 
 If the package is private the first time, open **GitHub → Packages → foxhole → Package settings** and set visibility to **Public**.

@@ -199,5 +199,22 @@ func (d *DB) UpdateDBHash(ctx context.Context) error {
 	if err := rows.Err(); err != nil {
 		return err
 	}
-	return d.SetMetadata(ctx, "providers_sha256", SHA256Bytes(parts))
+	if err := d.SetMetadata(ctx, "providers_sha256", SHA256Bytes(parts)); err != nil {
+		return err
+	}
+	return d.SetMetadata(ctx, "last_sync_at", time.Now().UTC().Format(time.RFC3339))
+}
+
+// LastSyncAt returns when the DB was last successfully updated, if recorded.
+func (d *DB) LastSyncAt(ctx context.Context) (time.Time, bool, error) {
+	raw, ok, err := d.GetMetadata(ctx, "last_sync_at")
+	if err != nil || !ok || raw == "" {
+		return time.Time{}, false, err
+	}
+	for _, layout := range []string{time.RFC3339, "2006-01-02 15:04:05"} {
+		if t, err := time.Parse(layout, raw); err == nil {
+			return t.UTC(), true, nil
+		}
+	}
+	return time.Time{}, false, fmt.Errorf("parse last_sync_at: %q", raw)
 }

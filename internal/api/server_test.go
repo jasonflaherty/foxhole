@@ -110,13 +110,17 @@ func TestScanAndHistory(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("scan status = %d body=%s", rr.Code, rr.Body.String())
 	}
-	var scanResult map[string]any
-	if err := json.Unmarshal(rr.Body.Bytes(), &scanResult); err != nil {
+	var scanEnvelope map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &scanEnvelope); err != nil {
 		t.Fatal(err)
 	}
+	if scanEnvelope["schema_version"] != "1.0.0" || scanEnvelope["tool"] != "foxhole" {
+		t.Fatalf("expected schema envelope, got %#v", scanEnvelope)
+	}
+	scanResult, _ := scanEnvelope["result"].(map[string]any)
 	findings, _ := scanResult["findings"].([]any)
 	if len(findings) < 1 {
-		t.Fatalf("expected vuln findings, got %#v", scanResult)
+		t.Fatalf("expected vuln findings, got %#v", scanEnvelope)
 	}
 
 	rr = httptest.NewRecorder()
@@ -130,5 +134,36 @@ func TestScanAndHistory(t *testing.T) {
 	}
 	if len(rows) < 1 {
 		t.Fatalf("expected history row, body=%s", rr.Body.String())
+	}
+}
+
+func TestAPITokenAuth(t *testing.T) {
+	database, err := db.Open(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+
+	srv := &api.Server{DB: database, Cfg: &config.Config{APIToken: "secret-token", Secrets: true, EOL: true}}
+	h := srv.NewRouter()
+
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/health", nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("health should stay public, got %d", rr.Code)
+	}
+
+	rr = httptest.NewRecorder()
+	h.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/history", nil))
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("history without token = %d", rr.Code)
+	}
+
+	rr = httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/history", nil)
+	req.Header.Set("Authorization", "Bearer secret-token")
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("history with token = %d body=%s", rr.Code, rr.Body.String())
 	}
 }

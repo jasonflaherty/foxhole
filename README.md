@@ -91,15 +91,19 @@ foxhole . --report console,junit,cyclonedx,spdx
 ```bash
 foxhole . --fail-on high          # exit 2 if severity ≥ high
 foxhole . --policy policy.yaml    # see examples/policy.yaml
+foxhole . --policy-dir examples/policy-pack
+foxhole . --split-reports         # foxhole-vulns.json, foxhole-secrets.json, …
+foxhole . --max-db-age 720h       # exit 1 if DB older than 30d
 ```
 
 | Exit | Meaning |
 |------|---------|
 | `0` | OK (or no policy) |
-| `1` | Tool / usage error |
+| `1` | Tool / usage / **stale DB** |
 | `2` | Policy failed |
 
-Jenkins copy-paste: [examples/jenkins/](examples/jenkins/).
+Suppressions (ticket + expiry) live in policy YAML — see [examples/policy.yaml](examples/policy.yaml).
+Jenkins shared lib + cosign pins: [examples/jenkins/](examples/jenkins/).
 
 ### History, diff, archive
 
@@ -234,7 +238,12 @@ foxhole . --enrich=false    # skip KEV/EPSS enrichment on vulns
 
 ### REST API + dashboard
 
+For trusted networks. When `FOXHOLE_API_TOKEN` is set, `POST /scan`,
+`POST /db/update`, and `GET /history` require `Authorization: Bearer <token>`
+(or `X-Foxhole-Token`). `/health`, `/version`, and `/` stay public.
+
 ```bash
+export FOXHOLE_API_TOKEN='…'   # optional
 foxhole serve --addr :8080
 # open http://localhost:8080
 ```
@@ -244,9 +253,9 @@ foxhole serve --addr :8080
 | `GET` | `/` | Dashboard |
 | `GET` | `/health` | Liveness |
 | `GET` | `/version` | Version |
-| `GET` | `/history` | Scan history |
-| `POST` | `/scan` | Run scan |
-| `POST` | `/db/update` | Refresh DB |
+| `GET` | `/history` | Scan history (auth if token set) |
+| `POST` | `/scan` | Run scan (auth if token set) |
+| `POST` | `/db/update` | Refresh DB (auth if token set) |
 
 ### Docker / Podman
 
@@ -286,7 +295,11 @@ Precedence: **flags > `FOXHOLE_*` env > `foxhole.yaml`**
 | NVD API key | `--nvd-api-key` / `FOXHOLE_NVD_API_KEY` | empty |
 | Archive dir | `--archive-dir` / `FOXHOLE_ARCHIVE_DIR` | `archive` |
 | Policy file | `--policy` / `FOXHOLE_POLICY` | empty |
+| Policy pack dir | `--policy-dir` / `FOXHOLE_POLICY_DIR` | empty |
 | Fail-on severity | `--fail-on` / `FOXHOLE_FAIL_ON` | empty |
+| Split kind JSONs | `--split-reports` / `FOXHOLE_SPLIT_REPORTS` | `false` |
+| Max DB age | `--max-db-age` / `FOXHOLE_MAX_DB_AGE` | empty (disabled) |
+| Serve API token | `FOXHOLE_API_TOKEN` | empty (auth off) |
 
 Sample config: [examples/foxhole.yaml](examples/foxhole.yaml).
 

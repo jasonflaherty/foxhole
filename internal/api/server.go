@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -12,6 +14,7 @@ import (
 	"github.com/jasonflaherty/foxhole/internal/config"
 	"github.com/jasonflaherty/foxhole/internal/db"
 	"github.com/jasonflaherty/foxhole/internal/diff"
+	"github.com/jasonflaherty/foxhole/internal/report"
 	"github.com/jasonflaherty/foxhole/internal/scan"
 	"github.com/jasonflaherty/foxhole/internal/seeds"
 	"github.com/jasonflaherty/foxhole/internal/version"
@@ -40,12 +43,51 @@ func (s *Server) NewRouter() http.Handler {
 
 	r.Get("/health", s.handleHealth)
 	r.Get("/version", s.handleVersion)
-	r.Get("/history", s.handleHistory)
-	r.Post("/scan", s.handleScan)
-	r.Post("/db/update", s.handleDBUpdate)
 	r.Get("/", s.handleDashboard)
+
+	r.Group(func(pr chi.Router) {
+		pr.Use(s.authMiddleware)
+		pr.Get("/history", s.handleHistory)
+		pr.Post("/scan", s.handleScan)
+		pr.Post("/db/update", s.handleDBUpdate)
+	})
 	return r
 }
+
+func (s *Server) apiToken() string {
+	if s.Cfg != nil && strings.TrimSpace(s.Cfg.APIToken) != "" {
+		return strings.TrimSpace(s.Cfg.APIToken)
+	}
+	return strings.TrimSpace(os.Getenv("FOXHOLE_API_TOKEN"))
+}
+
+func (s *Server) authMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		token := s.apiToken()
+		if token == "" {
+			next.ServeHTTP(w, r)
+			return
+		}
+		auth := r.Header.Get("Authorization")
+		got := strings.TrimSpace(strings.TrimPrefix(auth, "Bearer "))
+		if got == "" {
+			got = r.Header.Get("X-Foxhole-Token")
+		}
+		if got != token {
+			writeErr(w, http.StatusUnauthorized, errUnauthorized)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+type unauthorizedError struct{}
+
+func (unauthorizedError) Error() string {
+	return "unauthorized: set Authorization: Bearer <FOXHOLE_API_TOKEN>"
+}
+
+var errUnauthorized = unauthorizedError{}
 
 func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
@@ -123,7 +165,7 @@ func (s *Server) handleScan(w http.ResponseWriter, r *http.Request) {
 	}
 	snap, _ := diff.SnapshotJSON(result.Findings)
 	_ = s.DB.FinishScanHistory(r.Context(), histID, len(result.Findings), "", snap, "ok")
-	writeJSON(w, http.StatusOK, result)
+	writeJSON(w, http.StatusOK, report.WrapResult(result))
 }
 
 func (s *Server) handleDBUpdate(w http.ResponseWriter, r *http.Request) {

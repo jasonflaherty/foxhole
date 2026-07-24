@@ -2,13 +2,18 @@
 // Copy into an application repo (or reference from a shared library).
 // Requires: Docker on the agent; optional FOXHOLE_NVD_API_KEY credential.
 // Policy file: commit foxhole-policy.yaml at the repo root (see examples/policy.yaml).
+//
+// Pin a release tag (or IMAGE_DIGEST=ghcr.io/...@sha256:…) — never :latest in enterprise CI.
 
 pipeline {
   agent any
 
   environment {
-    FOXHOLE_IMAGE = 'ghcr.io/jasonflaherty/foxhole:latest'
+    // Prefer a release tag. Override with IMAGE_DIGEST for immutable pins, e.g.:
+    //   FOXHOLE_IMAGE=ghcr.io/jasonflaherty/foxhole@sha256:abc…
+    FOXHOLE_IMAGE = "${env.FOXHOLE_IMAGE ?: 'ghcr.io/jasonflaherty/foxhole:v0.2.0'}"
     FOXHOLE_DB_PATH = "${WORKSPACE}/.foxhole/foxhole.db"
+    FOXHOLE_REQUIRE_COSIGN = "${env.FOXHOLE_REQUIRE_COSIGN ?: 'false'}"
   }
 
   options {
@@ -23,12 +28,31 @@ pipeline {
       }
     }
 
+    stage('Pull and verify image') {
+      steps {
+        sh '''
+          set -eu
+          docker pull "$FOXHOLE_IMAGE"
+          if [ "${FOXHOLE_REQUIRE_COSIGN}" = "true" ]; then
+            if ! command -v cosign >/dev/null 2>&1; then
+              echo "::error::cosign required when FOXHOLE_REQUIRE_COSIGN=true" >&2
+              exit 1
+            fi
+            cosign verify --certificate-identity-regexp='.*' --certificate-oidc-issuer-regexp='.*' \
+              "$FOXHOLE_IMAGE" || {
+              echo "cosign verify failed for $FOXHOLE_IMAGE" >&2
+              exit 1
+            }
+          fi
+        '''
+      }
+    }
+
     stage('Foxhole DB update') {
       steps {
         sh '''
           set -eu
           mkdir -p "$(dirname "$FOXHOLE_DB_PATH")"
-          docker pull "$FOXHOLE_IMAGE"
           docker run --rm \
             -v "$WORKSPACE:/work" \
             -e FOXHOLE_DB_PATH=/work/.foxhole/foxhole.db \
@@ -52,6 +76,8 @@ pipeline {
             -w /work \
             "$FOXHOLE_IMAGE" /work \
               --report console,json,sarif,html \
+              --split-reports \
+              --max-db-age 720h \
               --fail-on high \
               $POLICY
         '''
@@ -61,8 +87,8 @@ pipeline {
 
   post {
     always {
-      archiveArtifacts artifacts: 'foxhole-report.*', allowEmptyArchive: true
-      // Optional (HTML Publisher plugin):
+      archiveArtifacts artifacts: 'foxhole-report.*,foxhole-*.json,foxhole-remediation.*', allowEmptyArchive: true
+      // Optional HTML Publisher:
       // publishHTML(target: [
       //   reportDir: '.',
       //   reportFiles: 'foxhole-report.html',
@@ -70,6 +96,8 @@ pipeline {
       //   keepAll: true,
       //   allowMissing: true,
       // ])
+      // Optional Warnings NG (SARIF):
+      // recordIssues(tools: [sarif(pattern: 'foxhole-report.sarif')], aggregatingResults: true)
     }
   }
 }
