@@ -1,0 +1,11 @@
+[
+  {
+    "id": "GO-2024-TEST",
+    "ecosystem": "Go",
+    "name": "github.com/vulnerable/lib",
+    "summary": "Test advisory bundled for offline bootstrap",
+    "severity": "HIGH",
+    "aliases": ["CVE-2024-9999"],
+    "fixed": "1.2.3"
+  }
+]

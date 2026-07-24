@@ -1,0 +1,9 @@
+*.db
+*.db-wal
+*.db-shm
+/bin/
+/dist/
+/coverage.out
+.idea/
+.vscode/
+*.exe

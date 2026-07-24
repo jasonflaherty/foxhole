@@ -1,0 +1,8 @@
+[
+  {
+    "id": "CVE-2024-9999",
+    "summary": "Test CVE bundled for offline bootstrap",
+    "severity": "HIGH",
+    "cvss_score": 7.5
+  }
+]

@@ -1,0 +1,9 @@
+# Foxhole configuration example
+# Precedence: CLI flags > environment variables > this file
+
+db_path: ~/.foxhole/foxhole.db
+offline: false
+log_level: info
+archive_dir: archive
+report: console
+# nvd_api_key: ""  # optional; improves NVD rate limits

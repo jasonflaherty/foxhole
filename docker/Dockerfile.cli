@@ -1,0 +1,14 @@
+# foxhole-cli image (Phase 1 placeholder)
+FROM golang:1.22-alpine AS build
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 go build -o /foxhole ./cmd/foxhole
+
+FROM alpine:3.20
+RUN adduser -D -u 1000 foxhole
+COPY --from=build /foxhole /usr/local/bin/foxhole
+USER foxhole
+VOLUME ["/var/lib/foxhole"]
+ENTRYPOINT ["foxhole"]
