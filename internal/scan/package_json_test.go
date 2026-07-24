@@ -24,6 +24,15 @@ func TestParsePackageJSONDirectOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// Default scan includes package.json even when a lockfile is present.
+	all, err := scan.NewFilesystemScanner().Scan(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) < 3 {
+		t.Fatalf("default scan pkgs = %#v", all)
+	}
+
 	direct, err := scan.NewFilesystemScanner().ScanWithOptions(dir, scan.ScanOptions{DirectOnly: true})
 	if err != nil {
 		t.Fatal(err)
@@ -38,5 +47,21 @@ func TestParsePackageJSONDirectOnly(t *testing.T) {
 	}
 	if len(limited) != 1 {
 		t.Fatalf("limited = %d", len(limited))
+	}
+}
+
+func TestScanPackageJSONWithoutLockfile(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	pkgJSON := `{"dependencies":{"lodash":"4.17.21"}}`
+	if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte(pkgJSON), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	pkgs, err := scan.NewFilesystemScanner().Scan(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pkgs) != 1 || pkgs[0].Name != "lodash" {
+		t.Fatalf("pkgs = %#v", pkgs)
 	}
 }

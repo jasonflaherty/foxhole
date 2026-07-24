@@ -27,7 +27,7 @@ func NewFilesystemScanner() *FilesystemScanner {
 
 // ScanOptions controls package discovery behavior.
 type ScanOptions struct {
-	// DirectOnly prefers package.json / go.mod direct deps over full lockfiles.
+	// DirectOnly skips lockfiles and uses manifests only (package.json / go.mod).
 	DirectOnly bool
 	// MaxPackages caps how many packages are returned (0 = unlimited).
 	MaxPackages int
@@ -61,13 +61,11 @@ func (s *FilesystemScanner) ScanWithOptions(root string, opts ScanOptions) ([]Di
 			}
 			pkgs = append(pkgs, found...)
 		case "package.json":
-			if opts.DirectOnly {
-				found, err := parsePackageJSON(path)
-				if err != nil {
-					return err
-				}
-				pkgs = append(pkgs, found...)
+			found, err := parsePackageJSON(path)
+			if err != nil {
+				return err
 			}
+			pkgs = append(pkgs, found...)
 		case "package-lock.json":
 			if opts.DirectOnly {
 				return nil
