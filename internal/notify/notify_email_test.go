@@ -47,6 +47,7 @@ func TestEmailNotify(t *testing.T) {
 }
 
 func TestGitHubNotify(t *testing.T) {
+	t.Setenv("FOXHOLE_GITHUB_API", "")
 	var gotURL, gotAuth string
 	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		gotURL = req.URL.String()

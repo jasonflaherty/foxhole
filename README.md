@@ -1,24 +1,19 @@
 # Foxhole
 
-Offline-first software supply chain scanner for local projects and CI.
+Offline-first supply chain scanner for local projects and CI.
 
-Scan a repo for dependency vulnerabilities, secrets, end-of-life runtimes,
-risky licenses, and Dockerfile misconfigs. Results land in **one findings list**
-(each item has a `kind`), then you choose how to report, gate CI, notify, or
-remediate.
+Foxhole scans a workspace for dependency vulns, secrets, EOL runtimes, risky
+licenses, and Dockerfile issues. Everything lands in **one findings list**
+(tagged by `kind`). You then report, gate the build, notify, or export audit
+evidence—deterministically, with an optional local vuln DB that works offline.
 
-**Image:** `ghcr.io/jasonflaherty/foxhole:latest` · **License:** MIT
+| | |
+|--|--|
+| **Image** | `ghcr.io/jasonflaherty/foxhole` (prefer a version tag, not `:latest`) |
+| **License** | MIT |
+| **Not this** | Not a SaaS dashboard, Dependabot, or image scanner like Trivy |
 
-## Install
-
-```bash
-# From source
-go install github.com/jasonflaherty/foxhole/cmd/foxhole@latest
-
-# Or container
-docker pull ghcr.io/jasonflaherty/foxhole:latest
-# podman pull ghcr.io/jasonflaherty/foxhole:latest
-```
+## Quick start (5 minutes)
 
 From this repo:
 
@@ -26,267 +21,206 @@ From this repo:
 git clone https://github.com/jasonflaherty/foxhole.git
 cd foxhole
 go build -o bin/foxhole ./cmd/foxhole
+
+# 1) Load demo vuln data (no network)
+./bin/foxhole db update examples/go-demo --offline
+
+# 2) Scan the vulnerable Go fixture
+./bin/foxhole examples/go-demo --offline --secrets=false --eol=false
+
+# 3) Secrets + EOL fixture
+./bin/foxhole examples/phase2-findings --offline
 ```
 
-## First scan (two steps)
-
-1. **Refresh the local DB** (network once; stores under `~/.foxhole/foxhole.db`):
+Or install the binary / pull the image:
 
 ```bash
-foxhole db update
-# or offline seeds only:
-foxhole db update --offline
+go install github.com/jasonflaherty/foxhole/cmd/foxhole@latest
+# or
+docker pull ghcr.io/jasonflaherty/foxhole:v0.2.0
 ```
 
-2. **Scan a path**:
+## Mental model
 
-```bash
-foxhole .
-foxhole ./my-app --offline
+```text
+db update  →  scan path  →  report / policy / evidence / notify
+                 │
+                 └─ findings[] each with kind: vuln | secret | eol | misconfig | license
 ```
 
-Every scan also records history in SQLite (`foxhole history`).
+1. **`foxhole db update`** — refresh the local SQLite DB (`~/.foxhole/foxhole.db` by default). Use `--offline` for embedded demo seeds; for real coverage, update online (or import a [DB bundle](docs/AIRGAP.md)).
+2. **`foxhole <path>`** — scan. Always writes history (`foxhole history`).
+3. **Optional flags** — reports, CI policy, evidence pack, triage, notifications.
 
-### What a finding looks like
+**Exit codes**
 
-Findings are **not** split into separate Dependabot-style logs. One report
-includes everything; filter by `kind` in JSON if you need streams.
+| Code | Meaning |
+|------|---------|
+| `0` | OK (or no policy configured) |
+| `1` | Tool / usage error, or **stale DB** (`--max-db-age`) |
+| `2` | Policy gate failed (`--fail-on` / `--policy`) |
+
+Detection is always deterministic. `--triage-ai` / `--remediate-ai` only draft text; they never change pass/fail.
+
+## Findings
 
 | `kind` | Meaning |
 |--------|---------|
-| `vuln` | Dependency / advisory (NVD, OSV, GHSA) |
-| `secret` | Credential pattern match |
-| `eol` | End-of-life runtime (e.g. old Go/Node) |
-| `misconfig` | Dockerfile hardening issues |
-| `license` | High-risk license signals |
-
-Console example:
+| `vuln` | Dependency advisory (NVD / OSV / GHSA) |
+| `secret` | Credential pattern |
+| `eol` | End-of-life runtime |
+| `misconfig` | Dockerfile hardening |
+| `license` | High-risk license signal |
 
 ```text
 [HIGH] CVE-2024-… (vuln)
   package: github.com/vulnerable/lib@v1.0.0 (Go)
 [CRITICAL] aws-access-key (secret)
   path: demo.env:4
-[HIGH] go@1.20 (eol)
-  product: go@1.20 eol=2024-02-01
 ```
 
-## Common workflows
+## Everyday use
 
-### Reports
+### Scan and report
 
 ```bash
-# Console only (default)
-foxhole .
-
-# Files next to cwd: foxhole-report.json, .sarif, etc.
-foxhole . --report console,json,sarif,html,markdown
-
-# CI / SBOM-oriented
-foxhole . --report console,junit,cyclonedx,spdx
+foxhole .                                          # console
+foxhole . --report console,json,sarif,html         # files in cwd
+foxhole . --report console,junit,cyclonedx,spdx    # CI / SBOM
+foxhole . --secrets=false --eol=false              # turn scanners off
 ```
 
-### CI gate (fail the build)
+### Fail the build (policy)
 
 ```bash
-foxhole . --fail-on high          # exit 2 if severity ≥ high
-foxhole . --policy policy.yaml    # see examples/policy.yaml
-foxhole . --policy-dir examples/policy-pack
-foxhole . --split-reports         # foxhole-vulns.json, foxhole-secrets.json, …
-foxhole . --max-db-age 720h       # exit 1 if DB older than 30d
-foxhole . --evidence              # foxhole-evidence/ audit pack
-foxhole . --triage                # groups + suggested suppressions (deterministic)
-foxhole . --github-diff           # issues only for NEW vs last green; close when fixed
-foxhole policy validate examples/policy-pack
+foxhole . --fail-on high
+foxhole . --policy examples/policy.yaml
+foxhole . --policy-dir examples/policy-pack     # merge org YAML packs
+foxhole policy validate examples/policy-pack    # fingerprint + expired suppressions
 ```
 
-| Exit | Meaning |
-|------|---------|
-| `0` | OK (or no policy) |
-| `1` | Tool / usage / **stale DB** |
-| `2` | Policy failed |
+Policy YAML supports `fail_on`, `kinds`, permanent `ignore`, and time-bounded
+`suppressions` (`until` / `ticket` / `reason`). See [examples/policy.yaml](examples/policy.yaml).
 
-Suppressions (ticket + expiry) live in policy YAML — see [examples/policy.yaml](examples/policy.yaml).
-Jenkins shared lib + cosign pins: [examples/jenkins/](examples/jenkins/).
-Air-gap (DB bundles + cosign): [docs/AIRGAP.md](docs/AIRGAP.md).
-
-### History, diff, archive
+### Audit evidence
 
 ```bash
-foxhole . --archive                    # archive/YYYY/MM/DD/*
+foxhole . --policy examples/policy.yaml --evidence --split-reports --max-db-age 720h
+```
+
+Writes `foxhole-evidence/` (manifest with DB hash + policy fingerprint, SARIF,
+suppressions) plus per-kind JSON (`foxhole-secrets.json`, …).
+
+### Triage (explain, don’t detect)
+
+```bash
+foxhole . --triage                 # foxhole-triage.md + .json (deterministic)
+foxhole . --triage --triage-ai     # optional LLM prose; needs FOXHOLE_AI_API_KEY
+```
+
+### Diff-driven GitHub issues
+
+```bash
+export FOXHOLE_GITHUB_TOKEN=… FOXHOLE_GITHUB_REPO=owner/repo
+foxhole . --github-diff --triage   # one issue per NEW finding vs last green; close when fixed
+foxhole . --github                 # legacy: one summary issue with everything
+```
+
+### History and archive
+
+```bash
+foxhole . --archive
 foxhole history
-foxhole diff last .                    # compare last two scans for that path
+foxhole diff last .
 ```
 
-### Remediation notes
+## CI recipes
+
+**Minimal gate**
 
 ```bash
-foxhole . --remediate                  # foxhole-remediation.md + .json
-foxhole . --remediate --remediate-ai    # needs FOXHOLE_AI_API_KEY / OPENAI_API_KEY
+foxhole db update
+foxhole . --fail-on high --report console,sarif
 ```
 
-### Notifications (optional)
-
-Pattern for every channel: **set env vars → pass the matching flag**.
-Nothing is sent unless you pass the flag. Failed notifies are logged; they do
-not fail the scan by themselves (policy/`--fail-on` still controls exit code).
-
-You can combine flags: `foxhole . --slack --teams --github`.
-
-#### Slack
-
-1. Slack app → **Incoming Webhooks** → add to a channel → copy URL.
-2. Run:
+**Regulated / Jenkins-style**
 
 ```bash
-export FOXHOLE_SLACK_WEBHOOK='https://hooks.slack.com/services/T…/B…/…'
-foxhole . --slack
+foxhole db update   # or: foxhole db import ./foxhole-db.tar.gz
+foxhole . --offline --max-db-age 720h \
+  --policy-dir ./policy-pack \
+  --evidence --split-reports \
+  --report console,json,sarif,html
 ```
 
-#### Microsoft Teams
+Copy-paste Jenkins + shared library: [examples/jenkins/](examples/jenkins/).  
+Air-gap (signed image + DB bundle): [docs/AIRGAP.md](docs/AIRGAP.md).  
+Feature demos in Actions: [examples/README.md](examples/README.md).
 
-1. Channel → **Connectors** / **Workflows** → Incoming Webhook → copy URL.
-2. Run:
-
-```bash
-export FOXHOLE_TEAMS_WEBHOOK='https://outlook.office.com/webhook/…'
-foxhole . --teams
-```
-
-#### Discord
-
-1. Channel settings → **Integrations** → **Webhooks** → New → copy URL.
-2. Run:
-
-```bash
-export FOXHOLE_DISCORD_WEBHOOK='https://discord.com/api/webhooks/…/…'
-foxhole . --discord
-```
-
-#### GitHub Issues
-
-Opens one issue on the target repo with a findings summary.
-
-1. Create a PAT (or use `GITHUB_TOKEN` in Actions) with `issues: write`.
-2. Run:
-
-```bash
-export FOXHOLE_GITHUB_TOKEN='ghp_…'          # or GITHUB_TOKEN
-export FOXHOLE_GITHUB_REPO='owner/repo'      # or GITHUB_REPOSITORY
-foxhole . --github
-```
-
-#### GitHub Checks
-
-Posts a **Check Run** on a commit (CI status UI). Needs repo + commit SHA.
-
-```bash
-export FOXHOLE_GITHUB_TOKEN='ghp_…'          # needs checks:write
-export FOXHOLE_GITHUB_REPO='owner/repo'
-export FOXHOLE_GIT_SHA="$(git rev-parse HEAD)"   # or GITHUB_SHA in Actions
-foxhole . --github-checks
-```
-
-GitHub Actions example:
+**GitHub Actions (Check Run)**
 
 ```yaml
-- name: Foxhole scan + Check Run
+- run: foxhole . --offline --github-checks --fail-on high
   env:
     FOXHOLE_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     FOXHOLE_GITHUB_REPO: ${{ github.repository }}
     FOXHOLE_GIT_SHA: ${{ github.sha }}
-  run: |
-    foxhole . --offline --github-checks --fail-on high
 ```
 
-#### Generic webhook
+## Notifications
 
-POSTs JSON `{summary, target, packages, findings}` to any HTTPS endpoint.
+Set env → pass the matching flag. Nothing is sent without the flag. Notify
+failures are logged; they do **not** change the exit code.
+
+| Flag | Env |
+|------|-----|
+| `--slack` | `FOXHOLE_SLACK_WEBHOOK` |
+| `--teams` | `FOXHOLE_TEAMS_WEBHOOK` |
+| `--discord` | `FOXHOLE_DISCORD_WEBHOOK` |
+| `--webhook` | `FOXHOLE_WEBHOOK_URL` |
+| `--email` | `FOXHOLE_SMTP_*`, `FOXHOLE_EMAIL_FROM`, `FOXHOLE_EMAIL_TO` |
+| `--github` / `--github-diff` | `FOXHOLE_GITHUB_TOKEN`, `FOXHOLE_GITHUB_REPO` |
+| `--github-checks` | same + `FOXHOLE_GIT_SHA` |
 
 ```bash
-export FOXHOLE_WEBHOOK_URL='https://example.com/hooks/foxhole'
-foxhole . --webhook
+export FOXHOLE_SLACK_WEBHOOK='https://hooks.slack.com/services/…'
+foxhole . --slack
 ```
 
-#### Email (SMTP)
+Container tip: pass the same env into `docker run -e FOXHOLE_SLACK_WEBHOOK …`.
+
+## Database commands
 
 ```bash
-export FOXHOLE_SMTP_HOST='smtp.example.com'
-export FOXHOLE_SMTP_PORT='587'                 # default 587
-export FOXHOLE_SMTP_USER='foxhole@example.com'
-export FOXHOLE_SMTP_PASS='…'
-export FOXHOLE_EMAIL_FROM='foxhole@example.com'
-export FOXHOLE_EMAIL_TO='sec@example.com,ops@example.com'
-foxhole . --email
+foxhole db update [path]           # refresh providers (online or --offline seeds)
+foxhole db verify                  # integrity + last sync age
+foxhole db export -o bundle.tar.gz # air-gap bundle
+foxhole db import bundle.tar.gz    # install bundle into --db-path
 ```
 
-#### Docker / CI tip
+## REST API (`foxhole serve`)
 
-Pass the same env into the container:
-
-```bash
-docker run --rm \
-  -e FOXHOLE_SLACK_WEBHOOK \
-  -v foxhole-data:/var/lib/foxhole \
-  -v "$PWD:/work:ro" \
-  ghcr.io/jasonflaherty/foxhole:latest /work --offline --slack
-```
-
-### Toggle scanners
-
-All of these default **on** except where noted:
+For trusted networks only. With `FOXHOLE_API_TOKEN` set, `/scan`, `/db/update`,
+and `/history` require `Authorization: Bearer <token>` (or `X-Foxhole-Token`).
+`/health`, `/version`, and `/` stay public.
 
 ```bash
-foxhole . --secrets=false --eol=false --misconfig=false --licenses=false
-foxhole . --enrich=false    # skip KEV/EPSS enrichment on vulns
-```
-
-### REST API + dashboard
-
-For trusted networks. When `FOXHOLE_API_TOKEN` is set, `POST /scan`,
-`POST /db/update`, and `GET /history` require `Authorization: Bearer <token>`
-(or `X-Foxhole-Token`). `/health`, `/version`, and `/` stay public.
-
-```bash
-export FOXHOLE_API_TOKEN='…'   # optional
+export FOXHOLE_API_TOKEN='…'    # optional
 foxhole serve --addr :8080
-# open http://localhost:8080
 ```
 
-| Method | Path | Purpose |
-|--------|------|---------|
-| `GET` | `/` | Dashboard |
-| `GET` | `/health` | Liveness |
-| `GET` | `/version` | Version |
-| `GET` | `/history` | Scan history (auth if token set) |
-| `POST` | `/scan` | Run scan (auth if token set) |
-| `POST` | `/db/update` | Refresh DB (auth if token set) |
-
-### Docker / Podman
+## Docker / Podman
 
 ```bash
-# Published CLI
 docker run --rm \
   -v foxhole-data:/var/lib/foxhole \
   -v "$PWD:/work:ro" \
-  ghcr.io/jasonflaherty/foxhole:latest /work --offline
+  ghcr.io/jasonflaherty/foxhole:v0.2.0 /work --offline
 
-# Built-in offline demo
-./docker/run-demo.sh
+./docker/run-demo.sh    # offline go-demo in one shot
 ```
 
-More volume/mount recipes: [docker/README.md](docker/README.md).
-
-## Try the fixtures in this repo
-
-```bash
-./bin/foxhole db update examples/go-demo --offline
-./bin/foxhole examples/go-demo --offline --secrets=false --eol=false
-
-./bin/foxhole examples/phase2-findings --offline   # secret + EOL demo
-```
-
-Index of demos, Jenkins, and Actions: [examples/README.md](examples/README.md).
+More mounts and cosign verify: [docker/README.md](docker/README.md).
 
 ## Configuration
 
@@ -298,40 +232,34 @@ Precedence: **flags > `FOXHOLE_*` env > `foxhole.yaml`**
 | Offline | `--offline` / `FOXHOLE_OFFLINE` | `false` |
 | Reports | `--report` / `FOXHOLE_REPORT` | `console` |
 | NVD API key | `--nvd-api-key` / `FOXHOLE_NVD_API_KEY` | empty |
-| Archive dir | `--archive-dir` / `FOXHOLE_ARCHIVE_DIR` | `archive` |
 | Policy file | `--policy` / `FOXHOLE_POLICY` | empty |
-| Policy pack dir | `--policy-dir` / `FOXHOLE_POLICY_DIR` | empty |
-| Fail-on severity | `--fail-on` / `FOXHOLE_FAIL_ON` | empty |
-| Split kind JSONs | `--split-reports` / `FOXHOLE_SPLIT_REPORTS` | `false` |
-| Max DB age | `--max-db-age` / `FOXHOLE_MAX_DB_AGE` | empty (disabled) |
-| Evidence pack | `--evidence` / `FOXHOLE_EVIDENCE` | `false` |
+| Policy pack | `--policy-dir` / `FOXHOLE_POLICY_DIR` | empty |
+| Fail-on | `--fail-on` / `FOXHOLE_FAIL_ON` | empty |
+| Max DB age | `--max-db-age` / `FOXHOLE_MAX_DB_AGE` | empty (off) |
+| Evidence | `--evidence` / `FOXHOLE_EVIDENCE` | `false` |
 | Triage | `--triage` / `--triage-ai` | `false` |
-| Serve API token | `FOXHOLE_API_TOKEN` | empty (auth off) |
+| Serve token | `FOXHOLE_API_TOKEN` | empty (auth off) |
 
-Sample config: [examples/foxhole.yaml](examples/foxhole.yaml).
+Sample file: [examples/foxhole.yaml](examples/foxhole.yaml).
 
-## Develop this repo
+## Docs map
+
+| Doc | When to read it |
+|-----|-----------------|
+| [examples/README.md](examples/README.md) | Fixtures + which Actions demo to run |
+| [examples/jenkins/](examples/jenkins/) | Jenkins pipeline / shared lib |
+| [docs/AIRGAP.md](docs/AIRGAP.md) | Offline / air-gapped CI |
+| [docker/README.md](docker/README.md) | Images, volumes, cosign |
+| [docs/ROADMAP.md](docs/ROADMAP.md) | What’s shipped |
+| [docs/Foxhole_Design_Book.md](docs/Foxhole_Design_Book.md) | Architecture |
+
+## Develop
 
 ```bash
 go test ./...
 golangci-lint run
 go build -o bin/foxhole ./cmd/foxhole
 ```
-
-CI runs tests/lint on every PR. Optional demos (capabilities, Juice Shop) live under
-[`.github/workflows/`](.github/workflows/).
-
-## Docs
-
-| Doc | Contents |
-|-----|----------|
-| [docs/ROADMAP.md](docs/ROADMAP.md) | What’s shipped |
-| [docs/AIRGAP.md](docs/AIRGAP.md) | Offline / air-gap runbook |
-| [docs/Foxhole_Design_Book.md](docs/Foxhole_Design_Book.md) | Architecture |
-| [examples/](examples/) | Fixtures + Jenkins |
-| [docker/](docker/) | Images and Podman |
-| [pkg/plugin](pkg/plugin) | Extension SDK stubs |
-| [pkg/provider](pkg/provider) | NVD / OSV / KEV / EPSS / GHSA |
 
 ## License
 

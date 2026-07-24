@@ -1,17 +1,32 @@
 # Foxhole configuration example
-# Precedence: CLI flags > environment variables > this file
+#
+# Copy to foxhole.yaml in your project or ~/.foxhole/foxhole.yaml
+# Precedence: CLI flags > FOXHOLE_* environment variables > this file
 
 db_path: ~/.foxhole/foxhole.db
 offline: false
 log_level: info
-archive_dir: archive
 report: console
+
+# Scanners (all default on)
 secrets: true
 eol: true
-# fail_on: high              # CI gate: critical|high|medium|low|info|any
-# policy: examples/policy.yaml
-# policy_dir: examples/policy-pack
+misconfig: true
+licenses: true
+enrich: true
+
+# --- CI gate (pick one style) ---
+# fail_on: high
+# policy: foxhole-policy.yaml
+# policy_dir: policy-pack
+
+# --- Freshness & audit ---
+# max_db_age: 720h          # exit 1 if DB older than 30d
+# evidence: true
+# evidence_dir: foxhole-evidence
 # split_reports: true
-# max_db_age: 720h           # exit 1 if DB older than duration
-# api_token: ""              # FOXHOLE_API_TOKEN for foxhole serve
-# nvd_api_key: ""  # optional; improves NVD rate limits
+
+# --- Optional ---
+# archive_dir: archive
+# nvd_api_key: ""           # improves NVD rate limits when online
+# api_token: ""             # FOXHOLE_API_TOKEN for foxhole serve

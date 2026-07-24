@@ -49,12 +49,13 @@ Data volume: `/var/lib/foxhole` (`FOXHOLE_DB_PATH=/var/lib/foxhole/foxhole.db`)
 
 On SELinux hosts, add `:Z` to volume mounts (e.g. `-v foxhole-data:/var/lib/foxhole:Z`).
 
-## Go demo (recommended)
+## Go demo (recommended first try)
 
 From the repo root:
 
 ```bash
 ./docker/run-demo.sh
+```
 
 # or explicitly with Podman:
 podman build -t foxhole-go-demo -f docker/Dockerfile.demo .

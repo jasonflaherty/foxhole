@@ -1,0 +1,98 @@
+name: Demo — Policy packs
+
+# Portable policy-as-code: validate packs, merge --policy-dir, suppressions, exit 2.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "cmd/**"
+      - "internal/policy/**"
+      - "internal/cli/**"
+      - "examples/policy*/**"
+      - "examples/policy.yaml"
+      - ".github/workflows/demo-policy-pack.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "cmd/**"
+      - "internal/policy/**"
+      - "internal/cli/**"
+      - "examples/policy*/**"
+      - "examples/policy.yaml"
+      - ".github/workflows/demo-policy-pack.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  policy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      FOXHOLE_DB_PATH: ${{ github.workspace }}/.foxhole/foxhole.db
+      DEMO: examples/phase2-findings
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.22.12"
+          cache: true
+
+      - name: Build
+        run: go build -o bin/foxhole ./cmd/foxhole
+
+      - name: Seed DB (offline)
+        run: |
+          mkdir -p "$(dirname "$FOXHOLE_DB_PATH")"
+          ./bin/foxhole db update "$DEMO" --db-path "$FOXHOLE_DB_PATH" --offline
+
+      - name: Validate policy pack
+        run: |
+          ./bin/foxhole policy validate examples/policy-pack | tee policy-validate.txt
+          grep -q fingerprint= policy-validate.txt
+          ./bin/foxhole policy validate examples/policy.yaml | tee policy-file-validate.txt
+
+      - name: Gate with --policy-dir (expect exit 2)
+        run: |
+          set +e
+          ./bin/foxhole "$DEMO" \
+            --db-path "$FOXHOLE_DB_PATH" \
+            --offline \
+            --policy-dir examples/policy-pack \
+            --report console \
+            > pack-stdout.txt 2> pack-stderr.txt
+          code=$?
+          set -e
+          echo "exit=${code}" | tee pack-exit.txt
+          test "$code" -eq 2
+          grep -q "policy failed" pack-stderr.txt
+
+      - name: Kind-scoped gate (secrets only)
+        run: |
+          set +e
+          ./bin/foxhole "$DEMO" \
+            --db-path "$FOXHOLE_DB_PATH" \
+            --offline \
+            --fail-on low \
+            --fail-on-kind secret \
+            --report console \
+            >/dev/null 2> kind-stderr.txt
+          code=$?
+          set -e
+          test "$code" -eq 2
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: foxhole-demo-policy-pack
+          path: |
+            policy-validate.txt
+            policy-file-validate.txt
+            pack-exit.txt
+            pack-stderr.txt
+            kind-stderr.txt
+          if-no-files-found: ignore

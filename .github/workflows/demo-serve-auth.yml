@@ -1,0 +1,92 @@
+name: Demo — Serve API token
+
+# FOXHOLE_API_TOKEN protects mutating/history routes; /health stays public.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "cmd/**"
+      - "internal/api/**"
+      - "internal/cli/**"
+      - ".github/workflows/demo-serve-auth.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "cmd/**"
+      - "internal/api/**"
+      - "internal/cli/**"
+      - ".github/workflows/demo-serve-auth.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  serve-auth:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      FOXHOLE_DB_PATH: ${{ github.workspace }}/.foxhole/foxhole.db
+      FOXHOLE_API_TOKEN: demo-serve-token
+      DEMO: examples/go-demo
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.22.12"
+          cache: true
+
+      - name: Build + seed
+        run: |
+          go build -o bin/foxhole ./cmd/foxhole
+          mkdir -p "$(dirname "$FOXHOLE_DB_PATH")"
+          ./bin/foxhole db update "$DEMO" --db-path "$FOXHOLE_DB_PATH" --offline
+
+      - name: Serve with token
+        run: |
+          ./bin/foxhole serve --addr 127.0.0.1:8080 --db-path "$FOXHOLE_DB_PATH" --offline &
+          echo $! > serve.pid
+          sleep 1
+
+          curl -fsS http://127.0.0.1:8080/health | tee health.json
+          curl -fsS http://127.0.0.1:8080/version | tee version.json
+
+          code=$(curl -s -o /tmp/hist-unauth.json -w '%{http_code}' http://127.0.0.1:8080/history)
+          echo "unauth_history=${code}" | tee auth-codes.txt
+          test "$code" = "401"
+
+          curl -fsS http://127.0.0.1:8080/history \
+            -H "Authorization: Bearer ${FOXHOLE_API_TOKEN}" \
+            | tee history.json
+
+          ABS="$(cd "$DEMO" && pwd)"
+          curl -fsS -X POST http://127.0.0.1:8080/scan \
+            -H "Authorization: Bearer ${FOXHOLE_API_TOKEN}" \
+            -H 'Content-Type: application/json' \
+            -d "{\"target\":\"${ABS}\",\"offline\":true,\"secrets\":false,\"eol\":false}" \
+            | tee scan.json
+          python3 - <<'PY'
+          import json
+          env = json.load(open("scan.json"))
+          assert env["schema_version"] == "1.0.0"
+          assert env["tool"] == "foxhole"
+          assert "result" in env
+          print("authenticated scan OK")
+          PY
+
+          kill "$(cat serve.pid)" || true
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: foxhole-demo-serve-auth
+          path: |
+            health.json
+            version.json
+            auth-codes.txt
+            history.json
+            scan.json
+          if-no-files-found: ignore

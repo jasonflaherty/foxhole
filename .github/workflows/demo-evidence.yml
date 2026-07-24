@@ -1,0 +1,104 @@
+name: Demo — Evidence packs
+
+# Proves --evidence audit artifacts (manifest, policy fingerprint, SARIF, suppressions).
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "cmd/**"
+      - "internal/evidence/**"
+      - "internal/policy/**"
+      - "internal/cli/**"
+      - "examples/**"
+      - ".github/workflows/demo-evidence.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "cmd/**"
+      - "internal/evidence/**"
+      - "internal/policy/**"
+      - "internal/cli/**"
+      - "examples/**"
+      - ".github/workflows/demo-evidence.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  evidence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      FOXHOLE_DB_PATH: ${{ github.workspace }}/.foxhole/foxhole.db
+      FOXHOLE_IMAGE: ghcr.io/jasonflaherty/foxhole:v0.2.0
+      FOXHOLE_IMAGE_DIGEST: sha256:deadbeefdemo
+      DEMO: examples/phase2-findings
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.22.12"
+          cache: true
+
+      - name: Build
+        run: go build -o bin/foxhole ./cmd/foxhole
+
+      - name: Seed DB (offline)
+        run: |
+          mkdir -p "$(dirname "$FOXHOLE_DB_PATH")"
+          ./bin/foxhole db update "$DEMO" --db-path "$FOXHOLE_DB_PATH" --offline
+
+      - name: Evidence pack + split reports
+        run: |
+          set +e
+          ./bin/foxhole "$DEMO" \
+            --db-path "$FOXHOLE_DB_PATH" \
+            --offline \
+            --policy examples/policy.yaml \
+            --evidence \
+            --evidence-dir foxhole-evidence \
+            --split-reports \
+            --report console,json,sarif \
+            > evidence-stdout.txt 2> evidence-stderr.txt
+          code=$?
+          set -e
+          echo "exit=${code}" | tee evidence-exit.txt
+          # Policy should fail on secrets/eol
+          test "$code" -eq 2
+          test -f foxhole-evidence/manifest.json
+          test -f foxhole-evidence/policy.json
+          test -f foxhole-evidence/result.json
+          test -f foxhole-evidence/findings.sarif
+          test -f foxhole-evidence/suppressions.json
+          test -f foxhole-vulns.json
+          test -f foxhole-secrets.json
+          python3 - <<'PY'
+          import json
+          m = json.load(open("foxhole-evidence/manifest.json"))
+          assert m["schema_version"] == "1.0.0"
+          assert m["tool"] == "foxhole"
+          assert m["policy_failed"] is True
+          assert m["policy_fingerprint"]
+          assert m["image"] == "ghcr.io/jasonflaherty/foxhole:v0.2.0"
+          assert m["image_digest"] == "sha256:deadbeefdemo"
+          assert m["db"].get("providers_sha256") or m["db"].get("last_sync_at")
+          p = json.load(open("foxhole-evidence/policy.json"))
+          assert p["fingerprint"] == m["policy_fingerprint"]
+          print("evidence pack OK")
+          PY
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: foxhole-demo-evidence
+          path: |
+            evidence-exit.txt
+            evidence-stderr.txt
+            foxhole-evidence/**
+            foxhole-*.json
+            foxhole-report.*
+          if-no-files-found: ignore

@@ -1,8 +1,11 @@
 # Jenkins CI/CD
 
-Use Foxhole as a pipeline stage: pull a **pinned** image, optionally verify with
-cosign, update (or reuse) the local vuln DB, scan the workspace, archive reports,
-and fail the build on policy exit code **2** (or exit **1** for stale DB / infra).
+**Fastest path:** copy [Jenkinsfile](Jenkinsfile) + [foxhole-policy.yaml](foxhole-policy.yaml)
+into your app repo, set `FOXHOLE_IMAGE` to a version tag or digest, run the pipeline.
+
+Foxhole is a pipeline stage: pull a **pinned** image, optionally verify with
+cosign, update (or import) the vuln DB, scan, archive reports/evidence, and fail
+on exit **2** (policy) or **1** (stale DB / infra).
 
 No Jenkins plugin is required — only Docker (or a binary on the agent). Optional
 [Warnings NG](https://plugins.jenkins.io/warnings-ng/) and
@@ -48,7 +51,8 @@ at the repo root.
 
 Key flags in the sample:
 
-- `--split-reports` — writes `foxhole-vulns.json`, `foxhole-secrets.json`, …
+- `--evidence` — `foxhole-evidence/` audit pack (DB hash, policy fingerprint, SARIF)
+- `--split-reports` — `foxhole-vulns.json`, `foxhole-secrets.json`, …
 - `--max-db-age 720h` — exit **1** if DB older than 30 days
 - `--fail-on high` / `--policy` — exit **2** on policy findings
 
@@ -108,9 +112,8 @@ policy fingerprint, image pin from `FOXHOLE_IMAGE` / `FOXHOLE_IMAGE_DIGEST`),
 
 ## Diff-driven GitHub issues
 
-Prefer `--github-diff` over `--github`: opens one issue per **new** finding vs the
-last green scan, closes mapped issues when findings disappear, and attaches a
-suppression YAML stub (plus triage drafts when `--triage` is set).
+Prefer `--github-diff` (issues vs last green) over `--github`. Mock API:
+`FOXHOLE_GITHUB_API=http://127.0.0.1:9876` — see [demo-github-diff.yml](../../.github/workflows/demo-github-diff.yml).
 
 ## Cosign verify
 

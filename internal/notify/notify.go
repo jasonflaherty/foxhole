@@ -64,6 +64,13 @@ func FromEnv() Config {
 	}
 }
 
+func githubAPIBase() string {
+	if v := strings.TrimSpace(os.Getenv("FOXHOLE_GITHUB_API")); v != "" {
+		return strings.TrimRight(v, "/")
+	}
+	return "https://api.github.com"
+}
+
 func firstEnv(keys ...string) string {
 	for _, k := range keys {
 		if v := os.Getenv(k); v != "" {
@@ -150,7 +157,7 @@ func (g GitHubNotifier) Notify(ctx context.Context, result *scan.Result) error {
 		"body":  SummaryLine(result) + "\n\n" + topFindings(result, 20),
 	}
 	body, _ := json.Marshal(payload)
-	url := "https://api.github.com/repos/" + g.Repo + "/issues"
+	url := githubAPIBase() + "/repos/" + g.Repo + "/issues"
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return err

@@ -96,7 +96,7 @@ func (g GitHubDiffNotifier) Notify(ctx context.Context, result *scan.Result) err
 func createIssue(ctx context.Context, client HTTPDoer, token, repo, title, body string) (int, error) {
 	payload := map[string]any{"title": title, "body": body}
 	raw, _ := json.Marshal(payload)
-	url := "https://api.github.com/repos/" + repo + "/issues"
+	url := githubAPIBase() + "/repos/" + repo + "/issues"
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(raw))
 	if err != nil {
 		return 0, err
@@ -124,7 +124,7 @@ func createIssue(ctx context.Context, client HTTPDoer, token, repo, title, body 
 
 func closeIssue(ctx context.Context, client HTTPDoer, token, repo string, number int, comment string) error {
 	if comment != "" {
-		cURL := fmt.Sprintf("https://api.github.com/repos/%s/issues/%d/comments", repo, number)
+		cURL := fmt.Sprintf("%s/repos/%s/issues/%d/comments", githubAPIBase(), repo, number)
 		raw, _ := json.Marshal(map[string]string{"body": comment})
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, cURL, bytes.NewReader(raw))
 		if err != nil {
@@ -143,7 +143,7 @@ func closeIssue(ctx context.Context, client HTTPDoer, token, repo string, number
 			return fmt.Errorf("github comment: status %d: %s", resp.StatusCode, string(b))
 		}
 	}
-	pURL := fmt.Sprintf("https://api.github.com/repos/%s/issues/%d", repo, number)
+	pURL := fmt.Sprintf("%s/repos/%s/issues/%d", githubAPIBase(), repo, number)
 	raw, _ := json.Marshal(map[string]string{"state": "closed"})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPatch, pURL, bytes.NewReader(raw))
 	if err != nil {

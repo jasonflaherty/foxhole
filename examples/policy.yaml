@@ -1,6 +1,9 @@
 # Example CI policy for Foxhole.
-# Use: foxhole . --policy examples/policy.yaml
-# Or:  foxhole policy validate examples/policy.yaml
+#
+#   foxhole policy validate examples/policy.yaml
+#   foxhole . --policy examples/policy.yaml
+#
+# Exit code 2 when findings meet fail_on (after suppressions).
 
 id: example-ci
 version: "1.0"
@@ -11,12 +14,11 @@ kinds:
   - secret
   - eol
 
-# Permanent skips (legacy). Prefer suppressions with ticket + until for audit.
+# Permanent skips (prefer suppressions with ticket + until for audit):
 # ignore:
 #   - CVE-2020-0000
-#   - aws-access-key-id
 
-# Time-bounded accepted risk (expired entries no longer skip).
+# Time-bounded accepted risk (expired entries no longer skip):
 suppressions:
   # - id: CVE-2024-0001
   #   until: "2026-12-01"

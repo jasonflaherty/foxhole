@@ -1,0 +1,83 @@
+name: Demo — Triage assistant
+
+# Deterministic --triage groups findings and suggests suppressions (no AI required).
+# Detection stays rule-based; triage only explains and drafts.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "cmd/**"
+      - "internal/triage/**"
+      - "internal/remediate/**"
+      - "internal/cli/**"
+      - "examples/**"
+      - ".github/workflows/demo-triage.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "cmd/**"
+      - "internal/triage/**"
+      - "internal/remediate/**"
+      - "internal/cli/**"
+      - "examples/**"
+      - ".github/workflows/demo-triage.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  triage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      FOXHOLE_DB_PATH: ${{ github.workspace }}/.foxhole/foxhole.db
+      DEMO: examples/phase2-findings
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.22.12"
+          cache: true
+
+      - name: Build
+        run: go build -o bin/foxhole ./cmd/foxhole
+
+      - name: Seed DB (offline)
+        run: |
+          mkdir -p "$(dirname "$FOXHOLE_DB_PATH")"
+          ./bin/foxhole db update "$DEMO" --db-path "$FOXHOLE_DB_PATH" --offline
+
+      - name: Triage (deterministic)
+        run: |
+          ./bin/foxhole "$DEMO" \
+            --db-path "$FOXHOLE_DB_PATH" \
+            --offline \
+            --triage \
+            --report console \
+            | tee triage-scan.txt
+          test -f foxhole-triage.md
+          test -f foxhole-triage.json
+          grep -q "Foxhole triage" foxhole-triage.md
+          grep -q "Suggested suppressions\|suggested_suppressions\|suppressions:" foxhole-triage.md
+          python3 - <<'PY'
+          import json
+          r = json.load(open("foxhole-triage.json"))
+          assert r["groups"], "expected at least one triage group"
+          assert r["suppressions_yaml"] or r["suggested_suppressions"]
+          assert r.get("ai_enriched") in (False, None, 0)
+          print(f"groups={len(r['groups'])}")
+          PY
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: foxhole-demo-triage
+          path: |
+            triage-scan.txt
+            foxhole-triage.md
+            foxhole-triage.json
+          if-no-files-found: ignore

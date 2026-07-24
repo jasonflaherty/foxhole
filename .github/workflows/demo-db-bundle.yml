@@ -1,0 +1,111 @@
+name: Demo — DB bundles (air-gap)
+
+# Export/import vulnerability DB bundles, then scan offline with --max-db-age.
+# Seeds remain demo-only; bundles are the air-gap channel.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "cmd/**"
+      - "internal/dbbundle/**"
+      - "internal/db/**"
+      - "internal/cli/**"
+      - "docs/AIRGAP.md"
+      - ".github/workflows/demo-db-bundle.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "cmd/**"
+      - "internal/dbbundle/**"
+      - "internal/db/**"
+      - "internal/cli/**"
+      - "docs/AIRGAP.md"
+      - ".github/workflows/demo-db-bundle.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  bundle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      FOXHOLE_DB_PATH: ${{ github.workspace }}/.foxhole/source.db
+      IMPORT_DB: ${{ github.workspace }}/.foxhole/imported.db
+      DEMO: examples/go-demo
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.22.12"
+          cache: true
+
+      - name: Build
+        run: go build -o bin/foxhole ./cmd/foxhole
+
+      - name: Update + export bundle
+        run: |
+          mkdir -p "$(dirname "$FOXHOLE_DB_PATH")"
+          ./bin/foxhole db update "$DEMO" --db-path "$FOXHOLE_DB_PATH" --offline
+          ./bin/foxhole db verify --db-path "$FOXHOLE_DB_PATH" | tee db-verify-source.txt
+          ./bin/foxhole db export -o foxhole-db-demo.tar.gz --db-path "$FOXHOLE_DB_PATH"
+          test -f foxhole-db-demo.tar.gz
+
+      - name: Import into fresh path
+        run: |
+          ./bin/foxhole db import foxhole-db-demo.tar.gz --db-path "$IMPORT_DB" | tee db-import.txt
+          ./bin/foxhole db verify --db-path "$IMPORT_DB" | tee db-verify-import.txt
+          grep -q "last sync:" db-verify-import.txt
+
+      - name: Offline scan with max-db-age (fresh → pass freshness)
+        run: |
+          ./bin/foxhole "$DEMO" \
+            --db-path "$IMPORT_DB" \
+            --offline \
+            --secrets=false --eol=false \
+            --max-db-age 720h \
+            --evidence \
+            --report console,json \
+            | tee scan-imported.txt
+          test -f foxhole-evidence/manifest.json
+          python3 - <<'PY'
+          import json
+          m = json.load(open("foxhole-evidence/manifest.json"))
+          assert m["db"].get("last_sync_at"), m
+          print("imported DB evidence OK")
+          PY
+
+      - name: Stale DB gate (expect exit 1)
+        run: |
+          set +e
+          ./bin/foxhole "$DEMO" \
+            --db-path "$IMPORT_DB" \
+            --offline \
+            --secrets=false --eol=false \
+            --max-db-age 1ns \
+            --report console \
+            > stale-stdout.txt 2> stale-stderr.txt
+          code=$?
+          set -e
+          echo "exit=${code}" | tee stale-exit.txt
+          test "$code" -eq 1
+          grep -Eqi "stale|max-db-age|last_sync" stale-stderr.txt || grep -Eqi "stale|max-db-age|last_sync" stale-stdout.txt
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: foxhole-demo-db-bundle
+          path: |
+            foxhole-db-demo.tar.gz
+            db-verify-source.txt
+            db-verify-import.txt
+            db-import.txt
+            scan-imported.txt
+            stale-exit.txt
+            stale-stderr.txt
+            foxhole-evidence/**
+          if-no-files-found: ignore
