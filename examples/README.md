@@ -8,6 +8,7 @@ Fixtures and configs used by local demos and GitHub Actions.
 | [phase2-findings](phase2-findings/) | Secret + EOL findings | [phase2-findings-demo.yml](../.github/workflows/phase2-findings-demo.yml), capabilities demo |
 | [policy.yaml](policy.yaml) | CI fail-on policy (`exit 2`) | capabilities demo |
 | [foxhole.yaml](foxhole.yaml) | Sample config file | — |
+| [jenkins/](jenkins/) | Jenkins Declarative Pipeline + policy | — |
 
 ## Quick local runs
 
@@ -44,3 +45,8 @@ go build -o bin/foxhole ./cmd/foxhole
 | [vulnerable-target-scan.yml](../.github/workflows/vulnerable-target-scan.yml) | Optional Juice Shop / NodeGoat online scan |
 
 Run **Actions → Capabilities demo → Run workflow** for the full tour.
+
+## Jenkins
+
+See [jenkins/](jenkins/) for a Declarative `Jenkinsfile`, policy file, and
+integration notes (Docker agent, exit codes, artifacts).

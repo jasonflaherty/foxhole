@@ -1,0 +1,75 @@
+// Example Jenkins Declarative Pipeline for Foxhole.
+// Copy into an application repo (or reference from a shared library).
+// Requires: Docker on the agent; optional FOXHOLE_NVD_API_KEY credential.
+// Policy file: commit foxhole-policy.yaml at the repo root (see examples/policy.yaml).
+
+pipeline {
+  agent any
+
+  environment {
+    FOXHOLE_IMAGE = 'ghcr.io/jasonflaherty/foxhole:latest'
+    FOXHOLE_DB_PATH = "${WORKSPACE}/.foxhole/foxhole.db"
+  }
+
+  options {
+    timestamps()
+    timeout(time: 30, unit: 'MINUTES')
+  }
+
+  stages {
+    stage('Checkout') {
+      steps {
+        checkout scm
+      }
+    }
+
+    stage('Foxhole DB update') {
+      steps {
+        sh '''
+          set -eu
+          mkdir -p "$(dirname "$FOXHOLE_DB_PATH")"
+          docker pull "$FOXHOLE_IMAGE"
+          docker run --rm \
+            -v "$WORKSPACE:/work" \
+            -e FOXHOLE_DB_PATH=/work/.foxhole/foxhole.db \
+            -e FOXHOLE_NVD_API_KEY \
+            "$FOXHOLE_IMAGE" db update /work
+        '''
+      }
+    }
+
+    stage('Foxhole scan') {
+      steps {
+        sh '''
+          set -eu
+          POLICY=""
+          if [ -f foxhole-policy.yaml ]; then
+            POLICY="--policy /work/foxhole-policy.yaml"
+          fi
+          docker run --rm \
+            -v "$WORKSPACE:/work" \
+            -e FOXHOLE_DB_PATH=/work/.foxhole/foxhole.db \
+            -w /work \
+            "$FOXHOLE_IMAGE" /work \
+              --report console,json,sarif,html \
+              --fail-on high \
+              $POLICY
+        '''
+      }
+    }
+  }
+
+  post {
+    always {
+      archiveArtifacts artifacts: 'foxhole-report.*', allowEmptyArchive: true
+      // Optional (HTML Publisher plugin):
+      // publishHTML(target: [
+      //   reportDir: '.',
+      //   reportFiles: 'foxhole-report.html',
+      //   reportName: 'Foxhole',
+      //   keepAll: true,
+      //   allowMissing: true,
+      // ])
+    }
+  }
+}

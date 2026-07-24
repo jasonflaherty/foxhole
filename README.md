@@ -87,7 +87,9 @@ foxhole version
 | `1` | Runtime / usage error |
 | `2` | Policy gate failed |
 
-See [examples/policy.yaml](examples/policy.yaml).
+See [examples/policy.yaml](examples/policy.yaml). For Jenkins pipelines (Docker
+agent, artifacts, shared DB), see [examples/jenkins/](examples/jenkins/).
+
 ### REST API (`foxhole serve`)
 
 | Method | Path | Description |

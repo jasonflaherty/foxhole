@@ -1,0 +1,14 @@
+# Example CI policy for Foxhole (Jenkins / GitHub Actions / local).
+# Copy to foxhole-policy.yaml at your app repo root, or pass --policy <path>.
+#
+# foxhole . --policy foxhole-policy.yaml
+# foxhole . --fail-on high
+
+fail_on: high
+kinds:
+  - vuln
+  - secret
+  - eol
+# ignore:
+#   - CVE-2020-0000
+#   - aws-access-key-id
