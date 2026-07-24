@@ -11,6 +11,7 @@ import (
 	"github.com/jasonflaherty/foxhole/internal/diff"
 	"github.com/jasonflaherty/foxhole/internal/logger"
 	"github.com/jasonflaherty/foxhole/internal/notify"
+	"github.com/jasonflaherty/foxhole/internal/policy"
 	"github.com/jasonflaherty/foxhole/internal/report"
 	"github.com/jasonflaherty/foxhole/internal/scan"
 	"github.com/jasonflaherty/foxhole/internal/seeds"
@@ -63,6 +64,9 @@ func NewRootCommand() *cobra.Command {
 	root.Flags().Bool("github", false, "open a GitHub issue with scan summary")
 	root.Flags().Bool("teams", false, "post scan summary to Microsoft Teams webhook")
 	root.Flags().Bool("email", false, "email scan summary via SMTP")
+	root.Flags().String("fail-on", "", "fail CI if findings at or above severity (critical|high|medium|low|info|any)")
+	root.Flags().String("policy", "", "path to policy YAML (fail_on, kinds, ignore)")
+	root.Flags().StringSlice("fail-on-kind", nil, "limit policy to finding kinds (vuln,secret,eol); repeatable")
 
 	_ = v.BindPFlag("db_path", root.PersistentFlags().Lookup("db-path"))
 	_ = v.BindPFlag("offline", root.PersistentFlags().Lookup("offline"))
@@ -72,6 +76,8 @@ func NewRootCommand() *cobra.Command {
 	_ = v.BindPFlag("secrets", root.Flags().Lookup("secrets"))
 	_ = v.BindPFlag("eol", root.Flags().Lookup("eol"))
 	_ = v.BindPFlag("archive_dir", root.Flags().Lookup("archive-dir"))
+	_ = v.BindPFlag("fail_on", root.Flags().Lookup("fail-on"))
+	_ = v.BindPFlag("policy", root.Flags().Lookup("policy"))
 
 	root.AddCommand(newDBCommand(v))
 	root.AddCommand(newVersionCommand())
@@ -164,7 +170,31 @@ func runScan(cmd *cobra.Command, args []string) error {
 			fmt.Fprintf(cmd.OutOrStdout(), "Notified %s\n", n.Name())
 		}
 	}
+
+	pol, err := loadScanPolicy(cfg, cmd)
+	if err != nil {
+		return err
+	}
+	decision := policy.Evaluate(pol, result.Findings)
+	if decision.Failed {
+		policy.Write(cmd.ErrOrStderr(), decision)
+		return &ExitError{Code: decision.ExitCode(), Err: decision}
+	}
 	return nil
+}
+
+func loadScanPolicy(cfg *config.Config, cmd *cobra.Command) (policy.Policy, error) {
+	var base policy.Policy
+	path := cfg.PolicyPath
+	if path != "" {
+		loaded, err := policy.LoadFile(expandPath(path))
+		if err != nil {
+			return policy.Policy{}, err
+		}
+		base = loaded
+	}
+	kinds, _ := cmd.Flags().GetStringSlice("fail-on-kind")
+	return policy.Merge(base, cfg.FailOn, kinds), nil
 }
 
 func newDBCommand(v *viper.Viper) *cobra.Command {

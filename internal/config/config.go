@@ -27,6 +27,8 @@ type Config struct {
 	NVDAPIKey  string `mapstructure:"nvd_api_key"`
 	Secrets    bool   `mapstructure:"secrets"`
 	EOL        bool   `mapstructure:"eol"`
+	FailOn     string `mapstructure:"fail_on"`
+	PolicyPath string `mapstructure:"policy"`
 }
 
 // DefaultDBPath returns the default SQLite database path.
@@ -59,6 +61,8 @@ func Load() (*Config, error) {
 	v.SetDefault("nvd_api_key", "")
 	v.SetDefault("secrets", true)
 	v.SetDefault("eol", true)
+	v.SetDefault("fail_on", "")
+	v.SetDefault("policy", "")
 
 	if err := v.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
@@ -92,6 +96,8 @@ func NewViper() *viper.Viper {
 	v.SetDefault("nvd_api_key", "")
 	v.SetDefault("secrets", true)
 	v.SetDefault("eol", true)
+	v.SetDefault("fail_on", "")
+	v.SetDefault("policy", "")
 	return v
 }
 

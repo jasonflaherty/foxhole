@@ -52,6 +52,9 @@ See [examples/foxhole.yaml](examples/foxhole.yaml).
 | `--github` | Open a GitHub issue (`FOXHOLE_GITHUB_TOKEN`, `FOXHOLE_GITHUB_REPO`) |
 | `--teams` | Post to Teams (`FOXHOLE_TEAMS_WEBHOOK`) |
 | `--email` | SMTP email (`FOXHOLE_SMTP_*`, `FOXHOLE_EMAIL_FROM`, `FOXHOLE_EMAIL_TO`) |
+| `--fail-on` / `FOXHOLE_FAIL_ON` | CI gate: fail if findings ≥ severity (`high`, `any`, …) |
+| `--policy` / `FOXHOLE_POLICY` | Path to policy YAML (`fail_on`, `kinds`, `ignore`) |
+| `--fail-on-kind` | Limit gate to kinds (`vuln`, `secret`, `eol`; repeatable) |
 
 ## CLI
 
@@ -59,6 +62,8 @@ See [examples/foxhole.yaml](examples/foxhole.yaml).
 foxhole .                                    # scan path (also records history)
 foxhole . --report json,html,sarif           # write foxhole-report.* files
 foxhole . --archive                          # also write archive/YYYY/MM/DD/*
+foxhole . --fail-on high                     # exit 2 if high+ findings (CI)
+foxhole . --policy examples/policy.yaml      # same via YAML
 foxhole . --secrets=false --eol=false        # vulns only
 foxhole history                              # list recent scans
 foxhole diff last .                          # compare last two scans for path
@@ -69,6 +74,15 @@ foxhole db verify
 foxhole version
 ```
 
+### Policy / CI exit codes
+
+| Code | Meaning |
+|---|---|
+| `0` | Success (or no policy configured) |
+| `1` | Runtime / usage error |
+| `2` | Policy gate failed |
+
+See [examples/policy.yaml](examples/policy.yaml).
 ### REST API (`foxhole serve`)
 
 | Method | Path | Description |

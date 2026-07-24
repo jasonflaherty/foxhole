@@ -28,6 +28,12 @@ Living checklist aligned with [Foxhole_Design_Book.md](Foxhole_Design_Book.md).
 - [x] `foxhole serve` + embedded dashboard at `/`
 - [x] Plugin SDK stubs in `pkg/plugin` (scanner / reporter / notifier registry)
 
+### Phase 5 (partial) — Policy engine
+- [x] Severity fail-on gate (`--fail-on`, `--policy`, `--fail-on-kind`) with CI exit code **2**
+- [ ] AI remediation
+- [ ] Broader enterprise integrations
+
 ## Later
 
-- **Phase 5:** AI remediation, policy engine, enterprise integrations
+- Remaining Phase 5: AI remediation, enterprise integrations
+- Design-book backlog: KEV/EPSS/licenses/SBOM, Slack/Discord, richer dashboard

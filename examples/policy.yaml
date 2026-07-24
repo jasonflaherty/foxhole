@@ -1,0 +1,12 @@
+# Example CI policy for Foxhole.
+# Use: foxhole . --policy examples/policy.yaml
+# Or:  foxhole . --fail-on high
+
+fail_on: high
+kinds:
+  - vuln
+  - secret
+  - eol
+# ignore:
+#   - CVE-2020-0000
+#   - aws-access-key-id

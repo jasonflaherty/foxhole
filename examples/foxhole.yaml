@@ -8,4 +8,6 @@ archive_dir: archive
 report: console
 secrets: true
 eol: true
+# fail_on: high              # CI gate: critical|high|medium|low|info|any
+# policy: examples/policy.yaml
 # nvd_api_key: ""  # optional; improves NVD rate limits
