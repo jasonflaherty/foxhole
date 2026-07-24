@@ -1,0 +1,239 @@
+name: Capabilities demo
+
+# End-to-end showcase of Foxhole phases 1–5 (policy): offline vulns, secrets/EOL,
+# reports, archive/history/diff, policy exit codes, Teams notify (mock), and REST API.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "cmd/**"
+      - "internal/**"
+      - "pkg/**"
+      - "examples/**"
+      - "docker/**"
+      - ".github/workflows/capabilities-demo.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "cmd/**"
+      - "internal/**"
+      - "pkg/**"
+      - "examples/**"
+      - "docker/**"
+      - ".github/workflows/capabilities-demo.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  demo:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      FOXHOLE_DB_PATH: ${{ github.workspace }}/.foxhole/foxhole.db
+      GO_DEMO: examples/go-demo
+      PHASE2_DEMO: examples/phase2-findings
+      ARCHIVE_DIR: ${{ github.workspace }}/demo-archive
+
+    steps:
+      - name: Checkout Foxhole
+        uses: actions/checkout@v5
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: "1.22.12"
+          cache: true
+
+      - name: Build foxhole
+        run: |
+          go build -o bin/foxhole ./cmd/foxhole
+          ./bin/foxhole version | tee version.txt
+
+      - name: Seed local DB (offline)
+        run: |
+          mkdir -p "$(dirname "$FOXHOLE_DB_PATH")" "$ARCHIVE_DIR"
+          ./bin/foxhole db update "$GO_DEMO" --db-path "$FOXHOLE_DB_PATH" --offline
+          ./bin/foxhole db verify --db-path "$FOXHOLE_DB_PATH"
+
+      - name: "1) Offline vuln scan (go-demo)"
+        id: vuln
+        run: |
+          set -o pipefail
+          ./bin/foxhole "$GO_DEMO" \
+            --db-path "$FOXHOLE_DB_PATH" \
+            --offline \
+            --secrets=false --eol=false \
+            --report console,json,markdown,html,sarif \
+            | tee vuln-scan.txt
+
+          FINDINGS="$(sed -n 's/.*Findings: \([0-9][0-9]*\).*/\1/p' vuln-scan.txt | head -n 1)"
+          echo "findings=${FINDINGS:-0}" >> "$GITHUB_OUTPUT"
+          test "${FINDINGS:-0}" -ge 1
+          test -f foxhole-report.json
+          test -f foxhole-report.md
+          test -f foxhole-report.html
+          test -f foxhole-report.sarif
+
+      - name: "2) Secrets + EOL (phase2-findings)"
+        id: phase2
+        run: |
+          set -o pipefail
+          ./bin/foxhole "$PHASE2_DEMO" \
+            --db-path "$FOXHOLE_DB_PATH" \
+            --offline \
+            --report console \
+            | tee phase2-scan.txt
+
+          SECRET_HITS="$(grep -c '(secret)' phase2-scan.txt || true)"
+          EOL_HITS="$(grep -c '(eol)' phase2-scan.txt || true)"
+          echo "secret_hits=${SECRET_HITS}" >> "$GITHUB_OUTPUT"
+          echo "eol_hits=${EOL_HITS}" >> "$GITHUB_OUTPUT"
+          test "$SECRET_HITS" -ge 1
+          test "$EOL_HITS" -ge 1
+
+      - name: "3) Archive, history, diff"
+        run: |
+          ABS_DEMO="$(cd "$GO_DEMO" && pwd)"
+
+          ./bin/foxhole "$ABS_DEMO" \
+            --db-path "$FOXHOLE_DB_PATH" \
+            --offline \
+            --secrets=false --eol=false \
+            --archive --archive-dir "$ARCHIVE_DIR" \
+            --report console | tee archive-scan-1.txt
+
+          find "$ARCHIVE_DIR" -name 'scan.json' | tee archive-files.txt
+          test -s archive-files.txt
+          ls -R "$ARCHIVE_DIR" | tee archive-tree.txt
+
+          ./bin/foxhole "$ABS_DEMO" \
+            --db-path "$FOXHOLE_DB_PATH" \
+            --offline \
+            --secrets=false --eol=false \
+            --report console | tee archive-scan-2.txt
+
+          ./bin/foxhole history "$ABS_DEMO" --db-path "$FOXHOLE_DB_PATH" --limit 5 | tee history.txt
+          grep -q FINDINGS history.txt
+
+          ./bin/foxhole diff last "$ABS_DEMO" --db-path "$FOXHOLE_DB_PATH" | tee diff.txt
+          grep -Eq 'Diff:|Comparing|No changes|Only one scan' diff.txt
+
+      - name: "4) Policy gate (expect exit 2)"
+        run: |
+          set +e
+          ./bin/foxhole "$PHASE2_DEMO" \
+            --db-path "$FOXHOLE_DB_PATH" \
+            --offline \
+            --fail-on high \
+            --report console \
+            > policy-stdout.txt 2> policy-stderr.txt
+          code=$?
+          set -e
+          echo "exit_code=${code}" | tee policy-exit.txt
+          test "$code" -eq 2
+          grep -q "policy failed" policy-stderr.txt
+
+          # YAML policy file path also works
+          set +e
+          ./bin/foxhole "$PHASE2_DEMO" \
+            --db-path "$FOXHOLE_DB_PATH" \
+            --offline \
+            --policy examples/policy.yaml \
+            --report console \
+            >/dev/null 2> policy-file-stderr.txt
+          code=$?
+          set -e
+          test "$code" -eq 2
+
+      - name: "5) Teams notify via local mock webhook"
+        run: |
+          python3 - <<'PY' &
+          from http.server import BaseHTTPRequestHandler, HTTPServer
+          class H(BaseHTTPRequestHandler):
+              def do_POST(self):
+                  length = int(self.headers.get("Content-Length", 0))
+                  _ = self.rfile.read(length)
+                  self.send_response(200)
+                  self.end_headers()
+                  self.wfile.write(b"ok")
+              def log_message(self, *args):
+                  pass
+          HTTPServer(("127.0.0.1", 8765), H).serve_forever()
+          PY
+          echo $! > webhook.pid
+          sleep 1
+
+          export FOXHOLE_TEAMS_WEBHOOK=http://127.0.0.1:8765/hook
+          ./bin/foxhole "$GO_DEMO" \
+            --db-path "$FOXHOLE_DB_PATH" \
+            --offline \
+            --secrets=false --eol=false \
+            --teams \
+            --report console | tee teams-notify.txt
+          grep -q "Notified teams" teams-notify.txt
+
+          kill "$(cat webhook.pid)" || true
+
+      - name: "6) REST API + dashboard"
+        run: |
+          ./bin/foxhole serve --addr 127.0.0.1:8080 --db-path "$FOXHOLE_DB_PATH" --offline &
+          echo $! > serve.pid
+          sleep 1
+
+          curl -fsS http://127.0.0.1:8080/health | tee api-health.json
+          curl -fsS http://127.0.0.1:8080/version | tee api-version.json
+          curl -fsS http://127.0.0.1:8080/ | tee api-dashboard.html >/dev/null
+          test -s api-dashboard.html
+
+          ABS_DEMO="$(cd "$GO_DEMO" && pwd)"
+          curl -fsS -X POST http://127.0.0.1:8080/scan \
+            -H 'Content-Type: application/json' \
+            -d "{\"target\":\"${ABS_DEMO}\",\"offline\":true,\"secrets\":false,\"eol\":false}" \
+            | tee api-scan.json
+          curl -fsS "http://127.0.0.1:8080/history" | tee api-history.json
+
+          kill "$(cat serve.pid)" || true
+
+      - name: Job summary
+        if: always()
+        run: |
+          {
+            echo "## Foxhole capabilities demo"
+            echo ""
+            echo "| Cap | Result |"
+            echo "|---|---|"
+            echo "| Version | \`$(cat version.txt 2>/dev/null || echo n/a)\` |"
+            echo "| Vuln findings (go-demo) | ${{ steps.vuln.outputs.findings }} |"
+            echo "| Secret hits | ${{ steps.phase2.outputs.secret_hits }} |"
+            echo "| EOL hits | ${{ steps.phase2.outputs.eol_hits }} |"
+            echo "| Policy exit | \`$(cat policy-exit.txt 2>/dev/null || echo n/a)\` |"
+            echo ""
+            echo "Artifacts include console logs, multi-format reports, archive tree, and API JSON."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload demo artifacts
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: foxhole-capabilities-demo
+          path: |
+            version.txt
+            vuln-scan.txt
+            phase2-scan.txt
+            archive-tree.txt
+            history.txt
+            diff.txt
+            policy-stderr.txt
+            policy-exit.txt
+            teams-notify.txt
+            api-health.json
+            api-version.json
+            api-scan.json
+            api-history.json
+            foxhole-report.json
+            foxhole-report.md
+            foxhole-report.html
+            foxhole-report.sarif
+          if-no-files-found: ignore

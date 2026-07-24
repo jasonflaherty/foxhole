@@ -30,6 +30,7 @@ Living checklist aligned with [Foxhole_Design_Book.md](Foxhole_Design_Book.md).
 
 ### Phase 5 (partial) — Policy engine
 - [x] Severity fail-on gate (`--fail-on`, `--policy`, `--fail-on-kind`) with CI exit code **2**
+- [x] Capabilities demo workflow ([capabilities-demo.yml](../.github/workflows/capabilities-demo.yml))
 - [ ] AI remediation
 - [ ] Broader enterprise integrations
 

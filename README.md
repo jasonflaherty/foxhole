@@ -106,6 +106,12 @@ GitHub Actions workflow [phase2-findings-demo.yml](.github/workflows/phase2-find
 - **Actions → Phase 2 findings demo → Run workflow**
 - Also runs on PRs that touch scan/seeds/report code
 
+### Full capabilities demo
+
+[capabilities-demo.yml](.github/workflows/capabilities-demo.yml) walks through vulns, secrets/EOL, all report formats, archive/history/diff, policy exit `2`, mock Teams notify, and the REST API. See [examples/README.md](examples/README.md).
+
+- **Actions → Capabilities demo → Run workflow**
+
 ### Scan a known-vulnerable app (CI)
 
 GitHub Actions workflow [vulnerable-target-scan.yml](.github/workflows/vulnerable-target-scan.yml) builds Foxhole and scans **OWASP Juice Shop** or **NodeGoat**.
