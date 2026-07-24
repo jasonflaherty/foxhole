@@ -6,4 +6,6 @@ offline: false
 log_level: info
 archive_dir: archive
 report: console
+secrets: true
+eol: true
 # nvd_api_key: ""  # optional; improves NVD rate limits

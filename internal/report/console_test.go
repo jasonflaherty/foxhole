@@ -2,6 +2,7 @@ package report_test
 
 import (
 	"bytes"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -10,15 +11,14 @@ import (
 	"github.com/jasonflaherty/foxhole/internal/scan"
 )
 
-func TestConsoleWrite(t *testing.T) {
-	t.Parallel()
-	var buf bytes.Buffer
-	result := &scan.Result{
+func sampleResult() *scan.Result {
+	return &scan.Result{
 		Target:     "/tmp/app",
 		StartedAt:  time.Now(),
 		FinishedAt: time.Now(),
 		Packages:   2,
 		Findings: []scan.Finding{{
+			Kind:     scan.KindVuln,
 			Package:  scan.DiscoveredPackage{Ecosystem: "Go", Name: "example.com/x", Version: "1.0.0"},
 			VulnID:   "CVE-2024-1",
 			Summary:  "boom",
@@ -26,7 +26,12 @@ func TestConsoleWrite(t *testing.T) {
 			Source:   "osv",
 		}},
 	}
-	if err := (report.Console{Out: &buf}).Write(result); err != nil {
+}
+
+func TestConsoleWrite(t *testing.T) {
+	t.Parallel()
+	var buf bytes.Buffer
+	if err := (report.Console{}).Write(&buf, sampleResult()); err != nil {
 		t.Fatal(err)
 	}
 	out := buf.String()
@@ -39,10 +44,59 @@ func TestConsoleNoFindings(t *testing.T) {
 	t.Parallel()
 	var buf bytes.Buffer
 	result := &scan.Result{Target: ".", StartedAt: time.Now(), FinishedAt: time.Now()}
-	if err := (report.Console{Out: &buf}).Write(result); err != nil {
+	if err := (report.Console{}).Write(&buf, result); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(buf.String(), "No vulnerabilities") {
+	if !strings.Contains(buf.String(), "No findings") {
 		t.Fatalf("output = %s", buf.String())
+	}
+}
+
+func TestJSONAndSARIF(t *testing.T) {
+	t.Parallel()
+	var buf bytes.Buffer
+	if err := (report.JSON{}).Write(&buf, sampleResult()); err != nil {
+		t.Fatal(err)
+	}
+	var decoded scan.Result
+	if err := json.Unmarshal(buf.Bytes(), &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if len(decoded.Findings) != 1 {
+		t.Fatalf("findings = %d", len(decoded.Findings))
+	}
+
+	buf.Reset()
+	if err := (report.SARIF{}).Write(&buf, sampleResult()); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(buf.String(), `"version": "2.1.0"`) {
+		t.Fatalf("sarif = %s", buf.String())
+	}
+}
+
+func TestParseFormats(t *testing.T) {
+	t.Parallel()
+	got := report.ParseFormats("json, html, json")
+	if len(got) != 2 || got[0] != "json" || got[1] != "html" {
+		t.Fatalf("got = %#v", got)
+	}
+}
+
+func TestMarkdownHTML(t *testing.T) {
+	t.Parallel()
+	var buf bytes.Buffer
+	if err := (report.Markdown{}).Write(&buf, sampleResult()); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(buf.String(), "# Foxhole scan") {
+		t.Fatal(buf.String())
+	}
+	buf.Reset()
+	if err := (report.HTML{}).Write(&buf, sampleResult()); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(buf.String(), "<table>") {
+		t.Fatal(buf.String())
 	}
 }

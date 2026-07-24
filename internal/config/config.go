@@ -25,6 +25,8 @@ type Config struct {
 	ArchiveDir string `mapstructure:"archive_dir"`
 	Report     string `mapstructure:"report"`
 	NVDAPIKey  string `mapstructure:"nvd_api_key"`
+	Secrets    bool   `mapstructure:"secrets"`
+	EOL        bool   `mapstructure:"eol"`
 }
 
 // DefaultDBPath returns the default SQLite database path.
@@ -55,6 +57,8 @@ func Load() (*Config, error) {
 	v.SetDefault("archive_dir", "archive")
 	v.SetDefault("report", "console")
 	v.SetDefault("nvd_api_key", "")
+	v.SetDefault("secrets", true)
+	v.SetDefault("eol", true)
 
 	if err := v.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
@@ -86,6 +90,8 @@ func NewViper() *viper.Viper {
 	v.SetDefault("archive_dir", "archive")
 	v.SetDefault("report", "console")
 	v.SetDefault("nvd_api_key", "")
+	v.SetDefault("secrets", true)
+	v.SetDefault("eol", true)
 	return v
 }
 

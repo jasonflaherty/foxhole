@@ -1,0 +1,15 @@
+[
+  {"product": "nodejs", "cycle": "16", "eol": "2023-09-11", "latest": "16.20.2", "link": "https://endoflife.date/nodejs"},
+  {"product": "nodejs", "cycle": "18", "eol": "2025-04-30", "latest": "18.20.8", "link": "https://endoflife.date/nodejs"},
+  {"product": "python", "cycle": "3.8", "eol": "2024-10-07", "latest": "3.8.20", "link": "https://endoflife.date/python"},
+  {"product": "python", "cycle": "3.9", "eol": "2025-10-31", "latest": "3.9.22", "link": "https://endoflife.date/python"},
+  {"product": "go", "cycle": "1.20", "eol": "2024-02-01", "latest": "1.20.14", "link": "https://endoflife.date/go"},
+  {"product": "go", "cycle": "1.21", "eol": "2024-08-01", "latest": "1.21.13", "link": "https://endoflife.date/go"},
+  {"product": "go", "cycle": "1.22", "eol": "2025-02-01", "latest": "1.22.12", "link": "https://endoflife.date/go"},
+  {"product": "ruby", "cycle": "3.0", "eol": "2024-04-23", "latest": "3.0.7", "link": "https://endoflife.date/ruby"},
+  {"product": "java", "cycle": "11", "eol": "2024-10-31", "latest": "11.0.26", "link": "https://endoflife.date/java"},
+  {"product": "django", "cycle": "3.2", "eol": "2024-04-01", "latest": "3.2.25", "link": "https://endoflife.date/django"},
+  {"product": "django", "cycle": "4.1", "eol": "2023-12-01", "latest": "4.1.13", "link": "https://endoflife.date/django"},
+  {"product": "rails", "cycle": "6.1", "eol": "2024-10-01", "latest": "6.1.7", "link": "https://endoflife.date/rails"},
+  {"product": "nginx", "cycle": "1.24", "eol": "2024-04-10", "latest": "1.24.0", "link": "https://endoflife.date/nginx"}
+]

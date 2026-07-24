@@ -1,0 +1,109 @@
+name: Phase 2 findings demo
+
+# Demonstrate secret + EOL detection against examples/phase2-findings.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "examples/phase2-findings/**"
+      - "internal/scan/**"
+      - "internal/seeds/**"
+      - "internal/report/**"
+      - ".github/workflows/phase2-findings-demo.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "examples/phase2-findings/**"
+      - "internal/scan/**"
+      - "internal/seeds/**"
+      - "internal/report/**"
+      - ".github/workflows/phase2-findings-demo.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  demo:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      FOXHOLE_DB_PATH: ${{ github.workspace }}/.foxhole/foxhole.db
+      DEMO_DIR: examples/phase2-findings
+
+    steps:
+      - name: Checkout Foxhole
+        uses: actions/checkout@v5
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: "1.22.12"
+          cache: true
+
+      - name: Build foxhole
+        run: |
+          go build -o bin/foxhole ./cmd/foxhole
+          ./bin/foxhole version
+
+      - name: Seed local DB (offline)
+        run: |
+          mkdir -p "$(dirname "$FOXHOLE_DB_PATH")"
+          ./bin/foxhole db update "$DEMO_DIR" --db-path "$FOXHOLE_DB_PATH" --offline
+
+      - name: Scan demo for secrets and EOL
+        id: scan
+        run: |
+          set -o pipefail
+          ./bin/foxhole "$DEMO_DIR" \
+            --db-path "$FOXHOLE_DB_PATH" \
+            --offline \
+            --report console,json,markdown \
+            | tee scan-results.txt
+
+          FINDINGS="$(sed -n 's/.*Findings: \([0-9][0-9]*\).*/\1/p' scan-results.txt | head -n 1)"
+          FINDINGS="${FINDINGS:-0}"
+          echo "findings=${FINDINGS}" >> "$GITHUB_OUTPUT"
+
+          SECRET_HITS="$(grep -c '(secret)' scan-results.txt || true)"
+          EOL_HITS="$(grep -c '(eol)' scan-results.txt || true)"
+          echo "secret_hits=${SECRET_HITS}" >> "$GITHUB_OUTPUT"
+          echo "eol_hits=${EOL_HITS}" >> "$GITHUB_OUTPUT"
+
+          {
+            echo "## Phase 2 findings demo"
+            echo ""
+            echo "- Target: \`${DEMO_DIR}\`"
+            echo "- **Findings:** ${FINDINGS}"
+            echo "- **Secret hits:** ${SECRET_HITS}"
+            echo "- **EOL hits:** ${EOL_HITS}"
+            echo ""
+            echo '```'
+            cat scan-results.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Expect secret and EOL findings
+        run: |
+          echo "Findings: ${{ steps.scan.outputs.findings }}"
+          echo "Secret hits: ${{ steps.scan.outputs.secret_hits }}"
+          echo "EOL hits: ${{ steps.scan.outputs.eol_hits }}"
+
+          if [ "${{ steps.scan.outputs.secret_hits }}" -lt 1 ]; then
+            echo "::error::Expected at least one (secret) finding from demo.env"
+            exit 1
+          fi
+          if [ "${{ steps.scan.outputs.eol_hits }}" -lt 1 ]; then
+            echo "::error::Expected at least one (eol) finding from go 1.20 in go.mod"
+            exit 1
+          fi
+
+      - name: Upload scan artifacts
+        uses: actions/upload-artifact@v5
+        with:
+          name: foxhole-phase2-findings-demo
+          path: |
+            scan-results.txt
+            foxhole-report.json
+            foxhole-report.md
+          if-no-files-found: error

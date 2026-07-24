@@ -52,7 +52,9 @@ func NewRootCommand() *cobra.Command {
 	root.PersistentFlags().Bool("offline", false, "disable network access")
 	root.PersistentFlags().String("log-level", "info", "log level (debug, info, warn, error)")
 	root.PersistentFlags().String("nvd-api-key", "", "optional NVD API key")
-	root.Flags().String("report", "console", "report formats (console)")
+	root.Flags().String("report", "console", "report formats: console,json,markdown,html,sarif (comma-separated)")
+	root.Flags().Bool("secrets", true, "enable secret scanning")
+	root.Flags().Bool("eol", true, "enable end-of-life checks")
 	root.Flags().Bool("archive", false, "archive results (phase 3)")
 	root.Flags().Bool("github", false, "notify GitHub (phase 3)")
 	root.Flags().Bool("teams", false, "notify Teams (phase 3)")
@@ -63,6 +65,8 @@ func NewRootCommand() *cobra.Command {
 	_ = v.BindPFlag("log_level", root.PersistentFlags().Lookup("log-level"))
 	_ = v.BindPFlag("nvd_api_key", root.PersistentFlags().Lookup("nvd-api-key"))
 	_ = v.BindPFlag("report", root.Flags().Lookup("report"))
+	_ = v.BindPFlag("secrets", root.Flags().Lookup("secrets"))
+	_ = v.BindPFlag("eol", root.Flags().Lookup("eol"))
 
 	root.AddCommand(newDBCommand(v))
 	root.AddCommand(newVersionCommand())
@@ -86,17 +90,30 @@ func runScan(cmd *cobra.Command, args []string) error {
 	}
 	defer func() { _ = database.Close() }()
 
+	if err := ensurePhase2Data(cmd.Context(), database); err != nil {
+		return err
+	}
+
 	osvProv := osv.New(database, osv.WithOffline(cfg.Offline))
 	nvdProv := nvd.New(database, nvd.WithOffline(cfg.Offline), nvd.WithAPIKey(cfg.NVDAPIKey))
-	engine := scan.NewEngine(database, osvProv, nvdProv)
+	engine := scan.NewEngine(database, osvProv, nvdProv).WithOptions(scan.EngineOptions{
+		Secrets: cfg.Secrets,
+		EOL:     cfg.EOL,
+	})
 
-	logger.L().Info("starting scan", zap.String("target", abs), zap.Bool("offline", cfg.Offline))
+	logger.L().Info("starting scan",
+		zap.String("target", abs),
+		zap.Bool("offline", cfg.Offline),
+		zap.Bool("secrets", cfg.Secrets),
+		zap.Bool("eol", cfg.EOL),
+	)
 	result, err := engine.Scan(cmd.Context(), abs)
 	if err != nil {
 		return err
 	}
 
-	return report.Console{Out: cmd.OutOrStdout()}.Write(result)
+	formats := report.ParseFormats(cfg.Report)
+	return report.WriteAll(formats, result, cmd.OutOrStdout(), ".")
 }
 
 func newDBCommand(v *viper.Viper) *cobra.Command {
@@ -151,6 +168,10 @@ func runDBUpdate(cmd *cobra.Command, cfg *config.Config, target string, maxPacka
 	}
 	defer func() { _ = database.Close() }()
 
+	if err := ensurePhase2Data(cmd.Context(), database); err != nil {
+		return err
+	}
+
 	abs, err := filepath.Abs(target)
 	if err != nil {
 		return err
@@ -203,7 +224,10 @@ func runDBUpdate(cmd *cobra.Command, cfg *config.Config, target string, maxPacka
 		logger.L().Warn("db hash update failed", zap.Error(err))
 	}
 	cves, adv, _ := database.CountVulns(cmd.Context())
-	fmt.Fprintf(cmd.OutOrStdout(), "database ready: %d CVEs, %d advisories at %s\n", cves, adv, expandPath(cfg.DBPath))
+	secrets, _ := database.CountSecretRules(cmd.Context())
+	eols, _ := database.CountEOL(cmd.Context())
+	fmt.Fprintf(cmd.OutOrStdout(), "database ready: %d CVEs, %d advisories, %d secret rules, %d eol rows at %s\n",
+		cves, adv, secrets, eols, expandPath(cfg.DBPath))
 	return nil
 }
 

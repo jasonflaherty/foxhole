@@ -23,4 +23,12 @@ func TestSeedsValidJSON(t *testing.T) {
 	if len(nvd) == 0 {
 		t.Fatal("empty nvd seeds")
 	}
+	rules, err := seeds.SecretRules()
+	if err != nil || len(rules) == 0 {
+		t.Fatalf("secret rules: %v len=%d", err, len(rules))
+	}
+	eols, err := seeds.EOLRecords()
+	if err != nil || len(eols) == 0 {
+		t.Fatalf("eol records: %v len=%d", err, len(eols))
+	}
 }
