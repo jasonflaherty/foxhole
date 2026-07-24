@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Foxhole</title>
+  <style>
+    :root {
+      --bg: #0f1419;
+      --panel: #1a222c;
+      --text: #e7ecf1;
+      --muted: #8b9aab;
+      --accent: #3d9a6a;
+      --warn: #d4a017;
+      --bad: #c44b4b;
+      --line: #2a3542;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+      background:
+        radial-gradient(ellipse 80% 50% at 20% -10%, #1e3a2f 0%, transparent 55%),
+        radial-gradient(ellipse 60% 40% at 100% 0%, #243044 0%, transparent 50%),
+        var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+    header {
+      padding: 2.5rem 1.5rem 1.25rem;
+      max-width: 960px;
+      margin: 0 auto;
+    }
+    h1 {
+      font-family: "IBM Plex Mono", ui-monospace, monospace;
+      font-size: 2rem;
+      letter-spacing: 0.04em;
+      margin: 0 0 0.35rem;
+    }
+    header p { margin: 0; color: var(--muted); max-width: 36rem; }
+    main { max-width: 960px; margin: 0 auto; padding: 0 1.5rem 3rem; }
+    .meta {
+      display: flex; gap: 1rem; flex-wrap: wrap;
+      margin: 1.25rem 0 1.75rem; color: var(--muted); font-size: 0.9rem;
+    }
+    .meta span strong { color: var(--accent); font-weight: 600; }
+    table {
+      width: 100%; border-collapse: collapse;
+      background: color-mix(in srgb, var(--panel) 88%, transparent);
+      border: 1px solid var(--line);
+    }
+    th, td {
+      text-align: left; padding: 0.7rem 0.85rem;
+      border-bottom: 1px solid var(--line);
+      font-size: 0.92rem;
+    }
+    th { color: var(--muted); font-weight: 500; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em; }
+    tr:last-child td { border-bottom: none; }
+    .status-ok { color: var(--accent); }
+    .status-error { color: var(--bad); }
+    .status-running { color: var(--warn); }
+    .empty { color: var(--muted); padding: 2rem 0; }
+    code { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 0.85em; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Foxhole</h1>
+    <p>Local scan history from the SQLite store. Use the REST API for scans and DB updates.</p>
+  </header>
+  <main>
+    <div class="meta">
+      <span>Health: <strong id="health">…</strong></span>
+      <span>Version: <strong id="version">…</strong></span>
+    </div>
+    <div id="content" class="empty">Loading history…</div>
+  </main>
+  <script>
+    async function load() {
+      try {
+        const [h, v, hist] = await Promise.all([
+          fetch("/health").then(r => r.json()),
+          fetch("/version").then(r => r.json()),
+          fetch("/history").then(r => r.json()),
+        ]);
+        document.getElementById("health").textContent = h.status || "unknown";
+        document.getElementById("version").textContent = v.version || "unknown";
+        const el = document.getElementById("content");
+        if (!hist || hist.length === 0) {
+          el.className = "empty";
+          el.textContent = "No scans yet. POST /scan or run foxhole . then refresh.";
+          return;
+        }
+        el.className = "";
+        const rows = hist.map(r => {
+          const st = (r.status || "").toLowerCase();
+          const cls = st === "ok" ? "status-ok" : (st === "error" ? "status-error" : "status-running");
+          const started = r.started_at ? new Date(r.started_at).toLocaleString() : "";
+          return `<tr>
+            <td>${r.id}</td>
+            <td><code>${escapeHtml(r.target || "")}</code></td>
+            <td>${r.finding_count}</td>
+            <td class="${cls}">${escapeHtml(r.status || "")}</td>
+            <td>${escapeHtml(started)}</td>
+          </tr>`;
+        }).join("");
+        el.innerHTML = `<table>
+          <thead><tr><th>ID</th><th>Target</th><th>Findings</th><th>Status</th><th>Started</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>`;
+      } catch (e) {
+        document.getElementById("content").textContent = "Failed to load: " + e;
+      }
+    }
+    function escapeHtml(s) {
+      return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
+    }
+    load();
+  </script>
+</body>
+</html>

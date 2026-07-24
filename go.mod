@@ -3,6 +3,7 @@ module github.com/jasonflaherty/foxhole
 go 1.22
 
 require (
+	github.com/go-chi/chi/v5 v5.2.1
 	github.com/pressly/goose/v3 v3.24.1
 	github.com/spf13/cobra v1.8.1
 	github.com/spf13/viper v1.19.0

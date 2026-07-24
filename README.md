@@ -3,8 +3,7 @@
 Offline-first, open-source software supply chain security scanner.
 
 Foxhole combines vulnerability (NVD/OSV), secret, and EOL scanning with
-multi-format reporting. Phase 2 adds secrets, end-of-life checks, and
-console/JSON/Markdown/HTML/SARIF reports.
+multi-format reporting, scan history/diff, notifications, and a local REST API.
 
 ## Quick start
 
@@ -18,6 +17,7 @@ foxhole db update
 foxhole .
 foxhole . --offline
 foxhole . --report console,json,sarif
+foxhole . --archive
 ```
 
 ### Container demo (Docker or Podman)
@@ -47,18 +47,43 @@ See [examples/foxhole.yaml](examples/foxhole.yaml).
 | `--report` / `FOXHOLE_REPORT` | Formats: `console,json,markdown,html,sarif` |
 | `--secrets` / `FOXHOLE_SECRETS` | Enable secret scanning (default true) |
 | `--eol` / `FOXHOLE_EOL` | Enable EOL checks (default true) |
+| `--archive` | Write reports under `archive/YYYY/MM/DD/` |
+| `--archive-dir` / `FOXHOLE_ARCHIVE_DIR` | Archive base directory (default `archive`) |
+| `--github` | Open a GitHub issue (`FOXHOLE_GITHUB_TOKEN`, `FOXHOLE_GITHUB_REPO`) |
+| `--teams` | Post to Teams (`FOXHOLE_TEAMS_WEBHOOK`) |
+| `--email` | SMTP email (`FOXHOLE_SMTP_*`, `FOXHOLE_EMAIL_FROM`, `FOXHOLE_EMAIL_TO`) |
 
 ## CLI
 
 ```bash
-foxhole .                                    # scan path
+foxhole .                                    # scan path (also records history)
 foxhole . --report json,html,sarif           # write foxhole-report.* files
+foxhole . --archive                          # also write archive/YYYY/MM/DD/*
 foxhole . --secrets=false --eol=false        # vulns only
+foxhole history                              # list recent scans
+foxhole diff last .                          # compare last two scans for path
+foxhole serve --addr :8080                   # REST API + dashboard
 foxhole db update                            # refresh NVD + OSV + seed secrets/EOL
 foxhole db update ./app --direct-only --max-packages 60
 foxhole db verify
 foxhole version
 ```
+
+### REST API (`foxhole serve`)
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/` | Dashboard |
+| `GET` | `/health` | Liveness |
+| `GET` | `/version` | Build version |
+| `GET` | `/history` | Scan history (`?target=`) |
+| `POST` | `/scan` | Run a scan (`{"target":".","offline":true}`) |
+| `POST` | `/db/update` | Refresh providers (`?offline=true`) |
+
+### Plugin SDK
+
+Extension contracts live in [`pkg/plugin`](pkg/plugin): register custom scanners,
+reporters, and notifiers. Vulnerability data providers remain in [`pkg/provider`](pkg/provider).
 
 ### Phase 2 findings demo (secrets + EOL)
 

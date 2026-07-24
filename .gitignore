@@ -4,6 +4,8 @@
 /bin/
 /dist/
 /coverage.out
+/archive/
+foxhole-report.*
 .idea/
 .vscode/
 *.exe

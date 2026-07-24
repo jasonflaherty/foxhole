@@ -5,9 +5,12 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/jasonflaherty/foxhole/internal/archive"
 	"github.com/jasonflaherty/foxhole/internal/config"
 	"github.com/jasonflaherty/foxhole/internal/db"
+	"github.com/jasonflaherty/foxhole/internal/diff"
 	"github.com/jasonflaherty/foxhole/internal/logger"
+	"github.com/jasonflaherty/foxhole/internal/notify"
 	"github.com/jasonflaherty/foxhole/internal/report"
 	"github.com/jasonflaherty/foxhole/internal/scan"
 	"github.com/jasonflaherty/foxhole/internal/seeds"
@@ -55,10 +58,11 @@ func NewRootCommand() *cobra.Command {
 	root.Flags().String("report", "console", "report formats: console,json,markdown,html,sarif (comma-separated)")
 	root.Flags().Bool("secrets", true, "enable secret scanning")
 	root.Flags().Bool("eol", true, "enable end-of-life checks")
-	root.Flags().Bool("archive", false, "archive results (phase 3)")
-	root.Flags().Bool("github", false, "notify GitHub (phase 3)")
-	root.Flags().Bool("teams", false, "notify Teams (phase 3)")
-	root.Flags().Bool("email", false, "notify email (phase 3)")
+	root.Flags().Bool("archive", false, "write reports under archive/YYYY/MM/DD/")
+	root.Flags().String("archive-dir", "archive", "base directory for archived reports")
+	root.Flags().Bool("github", false, "open a GitHub issue with scan summary")
+	root.Flags().Bool("teams", false, "post scan summary to Microsoft Teams webhook")
+	root.Flags().Bool("email", false, "email scan summary via SMTP")
 
 	_ = v.BindPFlag("db_path", root.PersistentFlags().Lookup("db-path"))
 	_ = v.BindPFlag("offline", root.PersistentFlags().Lookup("offline"))
@@ -67,9 +71,13 @@ func NewRootCommand() *cobra.Command {
 	_ = v.BindPFlag("report", root.Flags().Lookup("report"))
 	_ = v.BindPFlag("secrets", root.Flags().Lookup("secrets"))
 	_ = v.BindPFlag("eol", root.Flags().Lookup("eol"))
+	_ = v.BindPFlag("archive_dir", root.Flags().Lookup("archive-dir"))
 
 	root.AddCommand(newDBCommand(v))
 	root.AddCommand(newVersionCommand())
+	root.AddCommand(newHistoryCommand(v))
+	root.AddCommand(newDiffCommand(v))
+	root.AddCommand(newServeCommand(v))
 	return root
 }
 
@@ -101,6 +109,16 @@ func runScan(cmd *cobra.Command, args []string) error {
 		EOL:     cfg.EOL,
 	})
 
+	doArchive, _ := cmd.Flags().GetBool("archive")
+	doGitHub, _ := cmd.Flags().GetBool("github")
+	doTeams, _ := cmd.Flags().GetBool("teams")
+	doEmail, _ := cmd.Flags().GetBool("email")
+
+	histID, err := database.StartScanHistory(cmd.Context(), abs)
+	if err != nil {
+		return fmt.Errorf("scan history: %w", err)
+	}
+
 	logger.L().Info("starting scan",
 		zap.String("target", abs),
 		zap.Bool("offline", cfg.Offline),
@@ -109,11 +127,44 @@ func runScan(cmd *cobra.Command, args []string) error {
 	)
 	result, err := engine.Scan(cmd.Context(), abs)
 	if err != nil {
+		_ = database.FinishScanHistory(cmd.Context(), histID, 0, "", "[]", "error")
 		return err
 	}
 
 	formats := report.ParseFormats(cfg.Report)
-	return report.WriteAll(formats, result, cmd.OutOrStdout(), ".")
+	if err := report.WriteAll(formats, result, cmd.OutOrStdout(), "."); err != nil {
+		_ = database.FinishScanHistory(cmd.Context(), histID, len(result.Findings), "", "[]", "error")
+		return err
+	}
+
+	reportPath := ""
+	if doArchive {
+		dir, err := archive.Write(cfg.ArchiveDir, result, result.FinishedAt)
+		if err != nil {
+			_ = database.FinishScanHistory(cmd.Context(), histID, len(result.Findings), "", "[]", "error")
+			return fmt.Errorf("archive: %w", err)
+		}
+		reportPath = dir
+		fmt.Fprintf(cmd.OutOrStdout(), "Archived to %s\n", dir)
+	}
+
+	snap, err := diff.SnapshotJSON(result.Findings)
+	if err != nil {
+		snap = "[]"
+	}
+	if err := database.FinishScanHistory(cmd.Context(), histID, len(result.Findings), reportPath, snap, "ok"); err != nil {
+		logger.L().Warn("finish scan history failed", zap.Error(err))
+	}
+
+	for _, n := range notify.Select(notify.FromEnv(), doGitHub, doTeams, doEmail) {
+		if err := n.Notify(cmd.Context(), result); err != nil {
+			logger.L().Warn("notify failed", zap.String("channel", n.Name()), zap.Error(err))
+			fmt.Fprintf(cmd.ErrOrStderr(), "notify %s: %v\n", n.Name(), err)
+		} else {
+			fmt.Fprintf(cmd.OutOrStdout(), "Notified %s\n", n.Name())
+		}
+	}
+	return nil
 }
 
 func newDBCommand(v *viper.Viper) *cobra.Command {

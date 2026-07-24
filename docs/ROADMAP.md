@@ -16,26 +16,18 @@ Living checklist aligned with [Foxhole_Design_Book.md](Foxhole_Design_Book.md).
 - [x] EOL checks (seeded cycles + runtime pins)
 - [x] Reports: console, JSON, Markdown, HTML, SARIF (`--report`)
 - [x] CI demo workflow for secret + EOL ([phase2-findings-demo.yml](../.github/workflows/phase2-findings-demo.yml))
-- [ ] Commit/push Phase 2 to `main` if still local-only
 
-## Next — Phase 3
+### Phase 3 — Archive, history, notifications
+- [x] `--archive` / `--archive-dir` → `archive/YYYY/MM/DD/`
+- [x] `foxhole history` (persists every scan to `scan_history`)
+- [x] `foxhole diff last` (compare consecutive scans)
+- [x] Notifiers: `--github` / `--teams` / `--email` via `internal/notify`
 
-Make notifications and historical scans work:
-
-1. **`--archive`** — write reports under `archive/YYYY/MM/DD/`
-2. **`foxhole history`** — persist/list rows in `scan_history`
-3. **`foxhole diff last`** — compare consecutive scans for a target
-4. **Notifiers** — wire `--github` / `--teams` / `--email` via `internal/notify`
-
-How to start Phase 3:
-
-```bash
-# after Phase 2 is on main
-foxhole . --report json,html   # baseline today
-# then implement archive → history → diff → notifiers
-```
+### Phase 4 — API, dashboard, plugin SDK
+- [x] REST API (Chi): `POST /scan`, `POST /db/update`, `GET /history`, `GET /health`, `GET /version`
+- [x] `foxhole serve` + embedded dashboard at `/`
+- [x] Plugin SDK stubs in `pkg/plugin` (scanner / reporter / notifier registry)
 
 ## Later
 
-- **Phase 4:** REST API (Chi), dashboard, plugin SDK
 - **Phase 5:** AI remediation, policy engine, enterprise integrations
