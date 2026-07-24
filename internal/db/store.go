@@ -28,7 +28,7 @@ type Finding struct {
 
 // UpsertPackage inserts or returns an existing package row id.
 func (d *DB) UpsertPackage(ctx context.Context, p PackageRef) (int64, error) {
-	res, err := d.sql.ExecContext(ctx, `
+	_, err := d.sql.ExecContext(ctx, `
 		INSERT INTO packages (ecosystem, name, version)
 		VALUES (?, ?, ?)
 		ON CONFLICT(ecosystem, name, version) DO UPDATE SET name = excluded.name
@@ -36,14 +36,14 @@ func (d *DB) UpsertPackage(ctx context.Context, p PackageRef) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	id, err := res.LastInsertId()
-	if err != nil || id == 0 {
-		err = d.sql.QueryRowContext(ctx, `
-			SELECT id FROM packages WHERE ecosystem = ? AND name = ? AND version = ?
-		`, p.Ecosystem, p.Name, p.Version).Scan(&id)
-		if err != nil {
-			return 0, err
-		}
+	// Always SELECT the real packages.id. SQLite LastInsertId after ON CONFLICT DO UPDATE
+	// can return a stale rowid from a prior INSERT (e.g. advisories), which breaks FKs.
+	var id int64
+	err = d.sql.QueryRowContext(ctx, `
+		SELECT id FROM packages WHERE ecosystem = ? AND name = ? AND version = ?
+	`, p.Ecosystem, p.Name, p.Version).Scan(&id)
+	if err != nil {
+		return 0, fmt.Errorf("resolve package id: %w", err)
 	}
 	return id, nil
 }

@@ -366,7 +366,10 @@ func (p *Provider) persistVuln(ctx context.Context, pkg provider.PackageQuery, v
 	if strings.HasPrefix(strings.ToUpper(v.ID), "CVE-") {
 		vulnType = "cve"
 	}
-	return p.store.LinkPackageVuln(ctx, pkgID, v.ID, vulnType, "", fixed)
+	if err := p.store.LinkPackageVuln(ctx, pkgID, v.ID, vulnType, "", fixed); err != nil {
+		return fmt.Errorf("link %s -> pkg=%d type=%s: %w", v.ID, pkgID, vulnType, err)
+	}
+	return nil
 }
 
 func normalizeEcosystem(eco string) string {
