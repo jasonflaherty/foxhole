@@ -1,6 +1,11 @@
-# Org policy pack example
+# Org policy pack example — portable YAML gates (OPA-style for supply-chain CI).
 
 Merge with:
+
+```bash
+foxhole policy validate examples/policy-pack
+foxhole . --policy-dir examples/policy-pack
+```
 
 ```bash
 foxhole . --policy-dir examples/policy-pack --fail-on-kind secret --fail-on-kind vuln

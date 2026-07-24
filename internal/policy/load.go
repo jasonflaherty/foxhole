@@ -20,6 +20,10 @@ type Suppression struct {
 
 // Policy describes when a scan should fail.
 type Policy struct {
+	// ID is an optional pack identifier for evidence / audit.
+	ID string `yaml:"id" json:"id,omitempty"`
+	// Version is an optional pack version string.
+	Version string `yaml:"version" json:"version,omitempty"`
 	// FailOn is the minimum severity that fails the gate.
 	FailOn string `yaml:"fail_on" json:"fail_on"`
 	// Kinds limits which finding kinds are considered (empty = all).
@@ -74,6 +78,12 @@ func LoadDir(dir string) (Policy, error) {
 // MergePolicies combines two policies (b overlays onto a with union/strictest rules).
 func MergePolicies(a, b Policy) Policy {
 	out := a
+	if b.ID != "" {
+		out.ID = b.ID
+	}
+	if b.Version != "" {
+		out.Version = b.Version
+	}
 	out.FailOn = strictestFailOn(a.FailOn, b.FailOn)
 	out.Kinds = unionStrings(a.Kinds, b.Kinds)
 	out.Ignore = append(append([]string{}, a.Ignore...), b.Ignore...)

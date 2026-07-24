@@ -12,6 +12,7 @@ on:
 permissions:
   contents: read
   packages: write
+  id-token: write # cosign keyless signing
 
 env:
   REGISTRY: ghcr.io
@@ -66,6 +67,7 @@ jobs:
             type=raw,value=${{ steps.ver.outputs.version }},enable=${{ github.ref_type != 'tag' && github.event_name != 'release' }}
 
       - name: Build and push
+        id: push
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -78,6 +80,18 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign image (keyless OIDC)
+        env:
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: |
+          set -euo pipefail
+          IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
+          # Sign by digest for each published tag that resolves to this digest.
+          cosign sign --yes "${IMAGE}@${DIGEST}"
+
       - name: Summary
         run: |
           {
@@ -85,6 +99,8 @@ jobs:
             echo ""
             echo "- Registry: \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}\`"
             echo "- Version build-arg: \`${{ steps.ver.outputs.version }}\`"
+            echo "- Digest: \`${{ steps.push.outputs.digest }}\`"
+            echo "- Cosign: keyless sign applied to image digest"
             echo "- Tags:"
             echo '```'
             echo "${{ steps.meta.outputs.tags }}"
@@ -92,6 +108,10 @@ jobs:
             echo ""
             echo '```bash'
             echo "docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest"
+            echo "cosign verify \\"
+            echo "  --certificate-identity-regexp='https://github.com/jasonflaherty/foxhole/\\.github/workflows/publish-image\\.yml@.*' \\"
+            echo "  --certificate-oidc-issuer='https://token.actions.githubusercontent.com' \\"
+            echo "  ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.push.outputs.digest }}"
             echo "docker run --rm ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest version"
             echo '```'
             echo ""

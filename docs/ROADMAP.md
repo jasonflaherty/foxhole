@@ -56,6 +56,14 @@ Living checklist aligned with [Foxhole_Design_Book.md](Foxhole_Design_Book.md).
 - [x] Manifest-declared license signal (npm `package.json`) with LICENSE-file fallback
 - [x] `--policy-dir` org policy pack merge
 
+### Differentiation — Phase C–F (governance)
+- [x] Evidence packs (`--evidence`) with DB hash, policy fingerprint, SARIF, suppressions
+- [x] Policy `id`/`version` + `foxhole policy validate`
+- [x] Last-green history + `--github-diff` open/close issues by fingerprint
+- [x] Deterministic `--triage` / optional `--triage-ai` (AI explains; Foxhole gates)
+- [x] `foxhole db export` / `db import` bundles + cosign sign image/DB workflows
+- [x] Air-gap runbook ([AIRGAP.md](AIRGAP.md))
+
 ## Later / deeper
 
 - Full online EPSS CSV bulk import; richer SBOM ingestion

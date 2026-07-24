@@ -38,6 +38,10 @@ type Config struct {
 	SplitReports bool   `mapstructure:"split_reports"`
 	MaxDBAge     string `mapstructure:"max_db_age"` // Go duration, e.g. 720h; empty disables
 	APIToken     string `mapstructure:"api_token"`
+	Evidence     bool   `mapstructure:"evidence"`
+	EvidenceDir  string `mapstructure:"evidence_dir"`
+	Triage       bool   `mapstructure:"triage"`
+	TriageAI     bool   `mapstructure:"triage_ai"`
 }
 
 // DefaultDBPath returns the default SQLite database path.
@@ -81,6 +85,10 @@ func Load() (*Config, error) {
 	v.SetDefault("max_db_age", "")
 	v.SetDefault("policy_dir", "")
 	v.SetDefault("api_token", "")
+	v.SetDefault("evidence", false)
+	v.SetDefault("evidence_dir", "foxhole-evidence")
+	v.SetDefault("triage", false)
+	v.SetDefault("triage_ai", false)
 
 	if err := v.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
@@ -125,6 +133,10 @@ func NewViper() *viper.Viper {
 	v.SetDefault("max_db_age", "")
 	v.SetDefault("policy_dir", "")
 	v.SetDefault("api_token", "")
+	v.SetDefault("evidence", false)
+	v.SetDefault("evidence_dir", "foxhole-evidence")
+	v.SetDefault("triage", false)
+	v.SetDefault("triage_ai", false)
 	return v
 }
 

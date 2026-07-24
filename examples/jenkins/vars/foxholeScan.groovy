@@ -30,7 +30,10 @@ def call(Map args = [:]) {
     docker pull '${image}'
     if [ '${requireCosign}' = 'true' ]; then
       command -v cosign >/dev/null 2>&1 || { echo 'cosign required' >&2; exit 1; }
-      cosign verify --certificate-identity-regexp='.*' --certificate-oidc-issuer-regexp='.*' '${image}'
+      cosign verify \
+        --certificate-identity-regexp='https://github.com/jasonflaherty/foxhole/\.github/workflows/publish-image\.yml@.*' \
+        --certificate-oidc-issuer='https://token.actions.githubusercontent.com' \
+        '${image}'
     fi
   """
 
@@ -57,12 +60,14 @@ def call(Map args = [:]) {
   }
   def splitFlag = splitReports ? '--split-reports' : ''
   def ageFlag = maxDbAge ? "--max-db-age ${maxDbAge}" : ''
+  def evidenceFlag = (args.evidence != false) ? '--evidence' : ''
 
   sh """
     set -eu
     docker run --rm \\
       -v "\$WORKSPACE:/work" \\
       -e FOXHOLE_DB_PATH=/work/.foxhole/foxhole.db \\
+      -e FOXHOLE_IMAGE='${image}' \\
       -w /work \\
       '${image}' /work \\
         --report console,json,sarif,html \\
@@ -71,8 +76,9 @@ def call(Map args = [:]) {
         ${policyFlag} \\
         ${policyDirFlag} \\
         ${splitFlag} \\
+        ${evidenceFlag} \\
         ${ageFlag}
   """
 
-  archiveArtifacts artifacts: 'foxhole-report.*,foxhole-*.json,foxhole-remediation.*', allowEmptyArchive: true
+  archiveArtifacts artifacts: 'foxhole-report.*,foxhole-*.json,foxhole-remediation.*,foxhole-evidence/**,foxhole-triage.*', allowEmptyArchive: true
 }

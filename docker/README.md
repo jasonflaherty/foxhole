@@ -27,9 +27,13 @@ When `FOXHOLE_REQUIRE_COSIGN=true` in Jenkins, the agent must have
 See [examples/jenkins/README.md](../examples/jenkins/README.md).
 
 ```bash
-cosign verify --certificate-identity-regexp='.*' --certificate-oidc-issuer-regexp='.*' \
+cosign verify \
+  --certificate-identity-regexp='https://github.com/jasonflaherty/foxhole/\.github/workflows/publish-image\.yml@.*' \
+  --certificate-oidc-issuer='https://token.actions.githubusercontent.com' \
   ghcr.io/jasonflaherty/foxhole:v0.2.0
 ```
+
+Publish workflow signs images keyless (OIDC). Air-gap runbook: [docs/AIRGAP.md](../docs/AIRGAP.md).
 
 If the package is private the first time, open **GitHub → Packages → foxhole → Package settings** and set visibility to **Public**.
 

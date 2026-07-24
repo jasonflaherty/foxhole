@@ -38,7 +38,9 @@ pipeline {
               echo "::error::cosign required when FOXHOLE_REQUIRE_COSIGN=true" >&2
               exit 1
             fi
-            cosign verify --certificate-identity-regexp='.*' --certificate-oidc-issuer-regexp='.*' \
+            cosign verify \
+              --certificate-identity-regexp='https://github.com/jasonflaherty/foxhole/\.github/workflows/publish-image\.yml@.*' \
+              --certificate-oidc-issuer='https://token.actions.githubusercontent.com' \
               "$FOXHOLE_IMAGE" || {
               echo "cosign verify failed for $FOXHOLE_IMAGE" >&2
               exit 1
@@ -77,6 +79,7 @@ pipeline {
             "$FOXHOLE_IMAGE" /work \
               --report console,json,sarif,html \
               --split-reports \
+              --evidence \
               --max-db-age 720h \
               --fail-on high \
               $POLICY
@@ -87,7 +90,7 @@ pipeline {
 
   post {
     always {
-      archiveArtifacts artifacts: 'foxhole-report.*,foxhole-*.json,foxhole-remediation.*', allowEmptyArchive: true
+      archiveArtifacts artifacts: 'foxhole-report.*,foxhole-*.json,foxhole-remediation.*,foxhole-evidence/**,foxhole-triage.*', allowEmptyArchive: true
       // Optional HTML Publisher:
       // publishHTML(target: [
       //   reportDir: '.',

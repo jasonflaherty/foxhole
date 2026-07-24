@@ -94,6 +94,10 @@ foxhole . --policy policy.yaml    # see examples/policy.yaml
 foxhole . --policy-dir examples/policy-pack
 foxhole . --split-reports         # foxhole-vulns.json, foxhole-secrets.json, …
 foxhole . --max-db-age 720h       # exit 1 if DB older than 30d
+foxhole . --evidence              # foxhole-evidence/ audit pack
+foxhole . --triage                # groups + suggested suppressions (deterministic)
+foxhole . --github-diff           # issues only for NEW vs last green; close when fixed
+foxhole policy validate examples/policy-pack
 ```
 
 | Exit | Meaning |
@@ -104,6 +108,7 @@ foxhole . --max-db-age 720h       # exit 1 if DB older than 30d
 
 Suppressions (ticket + expiry) live in policy YAML — see [examples/policy.yaml](examples/policy.yaml).
 Jenkins shared lib + cosign pins: [examples/jenkins/](examples/jenkins/).
+Air-gap (DB bundles + cosign): [docs/AIRGAP.md](docs/AIRGAP.md).
 
 ### History, diff, archive
 
@@ -299,6 +304,8 @@ Precedence: **flags > `FOXHOLE_*` env > `foxhole.yaml`**
 | Fail-on severity | `--fail-on` / `FOXHOLE_FAIL_ON` | empty |
 | Split kind JSONs | `--split-reports` / `FOXHOLE_SPLIT_REPORTS` | `false` |
 | Max DB age | `--max-db-age` / `FOXHOLE_MAX_DB_AGE` | empty (disabled) |
+| Evidence pack | `--evidence` / `FOXHOLE_EVIDENCE` | `false` |
+| Triage | `--triage` / `--triage-ai` | `false` |
 | Serve API token | `FOXHOLE_API_TOKEN` | empty (auth off) |
 
 Sample config: [examples/foxhole.yaml](examples/foxhole.yaml).
@@ -319,6 +326,7 @@ CI runs tests/lint on every PR. Optional demos (capabilities, Juice Shop) live u
 | Doc | Contents |
 |-----|----------|
 | [docs/ROADMAP.md](docs/ROADMAP.md) | What’s shipped |
+| [docs/AIRGAP.md](docs/AIRGAP.md) | Offline / air-gap runbook |
 | [docs/Foxhole_Design_Book.md](docs/Foxhole_Design_Book.md) | Architecture |
 | [examples/](examples/) | Fixtures + Jenkins |
 | [docker/](docker/) | Images and Podman |

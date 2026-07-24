@@ -14,6 +14,7 @@ type ScanRecord struct {
 	Target       string    `json:"target"`
 	FindingCount int       `json:"finding_count"`
 	Status       string    `json:"status"`
+	PolicyPassed bool      `json:"policy_passed"`
 	ReportPath   string    `json:"report_path,omitempty"`
 	FindingsJSON string    `json:"-"`
 }
@@ -21,8 +22,8 @@ type ScanRecord struct {
 // StartScanHistory inserts a running scan row and returns its id.
 func (d *DB) StartScanHistory(ctx context.Context, target string) (int64, error) {
 	res, err := d.sql.ExecContext(ctx, `
-		INSERT INTO scan_history (started_at, target, status, finding_count, report_path, findings_json)
-		VALUES (datetime('now'), ?, 'running', 0, '', '[]')
+		INSERT INTO scan_history (started_at, target, status, finding_count, report_path, findings_json, policy_passed)
+		VALUES (datetime('now'), ?, 'running', 0, '', '[]', 0)
 	`, target)
 	if err != nil {
 		return 0, err
@@ -31,9 +32,14 @@ func (d *DB) StartScanHistory(ctx context.Context, target string) (int64, error)
 }
 
 // FinishScanHistory marks a scan complete with findings snapshot.
+// status should be ok | policy_failed | error.
 func (d *DB) FinishScanHistory(ctx context.Context, id int64, findingCount int, reportPath, findingsJSON, status string) error {
 	if status == "" {
 		status = "ok"
+	}
+	passed := 1
+	if status == "policy_failed" || status == "error" {
+		passed = 0
 	}
 	_, err := d.sql.ExecContext(ctx, `
 		UPDATE scan_history
@@ -41,9 +47,10 @@ func (d *DB) FinishScanHistory(ctx context.Context, id int64, findingCount int, 
 		    finding_count = ?,
 		    report_path = ?,
 		    findings_json = ?,
-		    status = ?
+		    status = ?,
+		    policy_passed = ?
 		WHERE id = ?
-	`, findingCount, reportPath, findingsJSON, status, id)
+	`, findingCount, reportPath, findingsJSON, status, passed, id)
 	return err
 }
 
@@ -58,14 +65,14 @@ func (d *DB) ListScanHistory(ctx context.Context, target string, limit int) ([]S
 	)
 	if target == "" {
 		rows, err = d.sql.QueryContext(ctx, `
-			SELECT id, started_at, COALESCE(finished_at, ''), target, finding_count, status, report_path, findings_json
+			SELECT id, started_at, COALESCE(finished_at, ''), target, finding_count, status, report_path, findings_json, COALESCE(policy_passed, 1)
 			FROM scan_history
 			ORDER BY id DESC
 			LIMIT ?
 		`, limit)
 	} else {
 		rows, err = d.sql.QueryContext(ctx, `
-			SELECT id, started_at, COALESCE(finished_at, ''), target, finding_count, status, report_path, findings_json
+			SELECT id, started_at, COALESCE(finished_at, ''), target, finding_count, status, report_path, findings_json, COALESCE(policy_passed, 1)
 			FROM scan_history
 			WHERE target = ?
 			ORDER BY id DESC
@@ -81,13 +88,15 @@ func (d *DB) ListScanHistory(ctx context.Context, target string, limit int) ([]S
 	for rows.Next() {
 		var r ScanRecord
 		var started, finished string
-		if err := rows.Scan(&r.ID, &started, &finished, &r.Target, &r.FindingCount, &r.Status, &r.ReportPath, &r.FindingsJSON); err != nil {
+		var passed int
+		if err := rows.Scan(&r.ID, &started, &finished, &r.Target, &r.FindingCount, &r.Status, &r.ReportPath, &r.FindingsJSON, &passed); err != nil {
 			return nil, err
 		}
 		r.StartedAt = parseSQLiteTime(started)
 		if finished != "" {
 			r.FinishedAt = parseSQLiteTime(finished)
 		}
+		r.PolicyPassed = passed != 0
 		out = append(out, r)
 	}
 	return out, rows.Err()
@@ -107,6 +116,33 @@ func (d *DB) LastTwoScans(ctx context.Context, target string) (latest, previous 
 		previous = &rows[1]
 	}
 	return latest, previous, nil
+}
+
+// LastGreenScan returns the most recent scan that passed policy (or had no policy failure).
+func (d *DB) LastGreenScan(ctx context.Context, target string) (*ScanRecord, error) {
+	row := d.sql.QueryRowContext(ctx, `
+		SELECT id, started_at, COALESCE(finished_at, ''), target, finding_count, status, report_path, findings_json, COALESCE(policy_passed, 1)
+		FROM scan_history
+		WHERE target = ? AND status != 'running' AND status != 'error' AND policy_passed = 1
+		ORDER BY id DESC
+		LIMIT 1
+	`, target)
+	var r ScanRecord
+	var started, finished string
+	var passed int
+	err := row.Scan(&r.ID, &started, &finished, &r.Target, &r.FindingCount, &r.Status, &r.ReportPath, &r.FindingsJSON, &passed)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	r.StartedAt = parseSQLiteTime(started)
+	if finished != "" {
+		r.FinishedAt = parseSQLiteTime(finished)
+	}
+	r.PolicyPassed = passed != 0
+	return &r, nil
 }
 
 func parseSQLiteTime(s string) time.Time {

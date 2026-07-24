@@ -1,6 +1,9 @@
 # Example CI policy for Foxhole.
 # Use: foxhole . --policy examples/policy.yaml
-# Or:  foxhole . --fail-on high
+# Or:  foxhole policy validate examples/policy.yaml
+
+id: example-ci
+version: "1.0"
 
 fail_on: high
 kinds:

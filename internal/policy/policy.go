@@ -21,10 +21,11 @@ func (p Policy) Enabled() bool {
 
 // Result is the outcome of Evaluate.
 type Result struct {
-	Failed     bool
-	Violations []scan.Finding
-	Message    string
-	UsedSupp   []Suppression // suppressions that matched findings
+	Failed      bool
+	Violations  []scan.Finding
+	Message     string
+	UsedSupp    []Suppression // suppressions that matched findings
+	ExpiredSupp []Suppression // suppressions past until (not applied)
 }
 
 // Error implements error when the policy gate fails.
@@ -62,7 +63,7 @@ func EvaluateAt(p Policy, findings []scan.Finding, now time.Time) Result {
 			kindSet[k] = struct{}{}
 		}
 	}
-	active, _ := ActiveSuppressions(p, now)
+	active, expired := ActiveSuppressions(p, now)
 	used := map[string]Suppression{}
 
 	var violations []scan.Finding
@@ -87,7 +88,7 @@ func EvaluateAt(p Policy, findings []scan.Finding, now time.Time) Result {
 	}
 
 	if len(violations) == 0 {
-		return Result{UsedSupp: usedList}
+		return Result{UsedSupp: usedList, ExpiredSupp: expired}
 	}
 
 	label := threshold
@@ -95,10 +96,11 @@ func EvaluateAt(p Policy, findings []scan.Finding, now time.Time) Result {
 		label = "any severity"
 	}
 	return Result{
-		Failed:     true,
-		Violations: violations,
-		Message:    fmt.Sprintf("policy failed: %d finding(s) at or above %s", len(violations), label),
-		UsedSupp:   usedList,
+		Failed:      true,
+		Violations:  violations,
+		Message:     fmt.Sprintf("policy failed: %d finding(s) at or above %s", len(violations), label),
+		UsedSupp:    usedList,
+		ExpiredSupp: expired,
 	}
 }
 

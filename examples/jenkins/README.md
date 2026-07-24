@@ -100,7 +100,28 @@ pipeline {
 3. **Org packs** — `--policy-dir examples/policy-pack` merges YAML files
    (see [../policy-pack/](../policy-pack/)).
 
-## Suppressions
+## Evidence packs
+
+`--evidence` writes `foxhole-evidence/` with `manifest.json` (DB hash, `last_sync_at`,
+policy fingerprint, image pin from `FOXHOLE_IMAGE` / `FOXHOLE_IMAGE_DIGEST`),
+`policy.json`, `result.json`, `findings.sarif`, and `suppressions.json`.
+
+## Diff-driven GitHub issues
+
+Prefer `--github-diff` over `--github`: opens one issue per **new** finding vs the
+last green scan, closes mapped issues when findings disappear, and attaches a
+suppression YAML stub (plus triage drafts when `--triage` is set).
+
+## Cosign verify
+
+```bash
+cosign verify \
+  --certificate-identity-regexp='https://github.com/jasonflaherty/foxhole/\.github/workflows/publish-image\.yml@.*' \
+  --certificate-oidc-issuer='https://token.actions.githubusercontent.com' \
+  "$FOXHOLE_IMAGE"
+```
+
+Air-gap: [../../docs/AIRGAP.md](../../docs/AIRGAP.md).
 
 Prefer ticket + expiry over permanent `ignore:`:
 

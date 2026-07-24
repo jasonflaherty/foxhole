@@ -1,3 +1,5 @@
+id: vulns-high
+version: "1.0"
 fail_on: high
 kinds:
   - vuln

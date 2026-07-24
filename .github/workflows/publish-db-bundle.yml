@@ -1,0 +1,62 @@
+# Optional: build a vulnerability DB bundle and attach it to a GitHub Release.
+# Prefer running after a networked db update. Sign the blob with cosign keyless.
+name: Publish DB bundle
+
+on:
+  workflow_dispatch:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  bundle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23.x"
+
+      - name: Build foxhole
+        run: go build -o bin/foxhole ./cmd/foxhole
+
+      - name: Update DB (online)
+        env:
+          FOXHOLE_DB_PATH: ${{ runner.temp }}/foxhole.db
+        run: ./bin/foxhole db update --max-packages 200
+
+      - name: Export bundle
+        env:
+          FOXHOLE_DB_PATH: ${{ runner.temp }}/foxhole.db
+        run: |
+          NAME="foxhole-db-$(date -u +%Y%m%d).tar.gz"
+          ./bin/foxhole db export -o "$NAME"
+          echo "BUNDLE=$NAME" >> "$GITHUB_ENV"
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign bundle
+        run: |
+          cosign sign-blob --yes --bundle "${BUNDLE}.cosign.bundle" "$BUNDLE"
+
+      - name: Upload release assets
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${{ github.event.release.tag_name }}" "$BUNDLE" "${BUNDLE}.cosign.bundle" --clobber
+
+      - name: Upload workflow artifacts
+        if: github.event_name != 'release'
+        uses: actions/upload-artifact@v4
+        with:
+          name: foxhole-db-bundle
+          path: |
+            ${{ env.BUNDLE }}
+            ${{ env.BUNDLE }}.cosign.bundle
