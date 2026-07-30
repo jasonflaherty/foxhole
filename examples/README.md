@@ -70,6 +70,8 @@ Run from **Actions → Demo — … → Run workflow**.
 | [demo-serve-auth.yml](../.github/workflows/demo-serve-auth.yml) | Serve API token |
 | [capabilities-demo.yml](../.github/workflows/capabilities-demo.yml) | Combined product tour |
 | [phase2-findings-demo.yml](../.github/workflows/phase2-findings-demo.yml) | Secret + EOL assertion |
+| [vulnerable-target-scan.yml](../.github/workflows/vulnerable-target-scan.yml) | Optional Juice Shop / NodeGoat online scan |
+| [compare-juice-shop.yml](../.github/workflows/compare-juice-shop.yml) | Foxhole vs TruffleHog vs Gitleaks on Juice Shop |
 | [ci.yml](../.github/workflows/ci.yml) | Tests + lint |
 | [publish-image.yml](../.github/workflows/publish-image.yml) | GHCR image + cosign |
 | [publish-db-bundle.yml](../.github/workflows/publish-db-bundle.yml) | DB bundle release |

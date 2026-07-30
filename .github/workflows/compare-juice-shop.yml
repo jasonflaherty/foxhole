@@ -1,0 +1,356 @@
+name: Compare tools — Juice Shop
+
+# Side-by-side: Foxhole vs TruffleHog vs Gitleaks on OWASP Juice Shop.
+# Prints a findings comparison in the job log and Actions summary.
+# This is a bake-off, not a CI gate — non-zero tool exits are expected.
+on:
+  workflow_dispatch:
+    inputs:
+      juice_shop_ref:
+        description: Juice Shop git tag/branch
+        type: string
+        required: false
+        default: "v17.3.0"
+      max_packages:
+        description: Max packages for Foxhole OSV update (0 = unlimited)
+        type: string
+        required: false
+        default: "80"
+
+permissions:
+  contents: read
+
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      FOXHOLE_DB_PATH: ${{ github.workspace }}/.foxhole/foxhole.db
+      TARGET_DIR: targets/juice-shop
+      JUICE_REF: ${{ github.event.inputs.juice_shop_ref || 'v17.3.0' }}
+      MAX_PACKAGES: ${{ github.event.inputs.max_packages || '80' }}
+
+    steps:
+      - name: Checkout Foxhole
+        uses: actions/checkout@v5
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: "1.22.12"
+          cache: true
+
+      - name: Build foxhole
+        run: |
+          go build -o bin/foxhole ./cmd/foxhole
+          ./bin/foxhole version | tee foxhole-version.txt
+
+      - name: Clone OWASP Juice Shop (shallow)
+        run: |
+          mkdir -p targets
+          git clone --depth 1 --branch "$JUICE_REF" \
+            https://github.com/juice-shop/juice-shop.git \
+            "$TARGET_DIR"
+          echo "Cloned juice-shop @ ${JUICE_REF}"
+          du -sh "$TARGET_DIR" | tee target-size.txt
+
+      - name: Foxhole — update DB + scan
+        id: foxhole
+        continue-on-error: true
+        run: |
+          set +e
+          mkdir -p "$(dirname "$FOXHOLE_DB_PATH")" reports
+          ./bin/foxhole db update "$TARGET_DIR" \
+            --db-path "$FOXHOLE_DB_PATH" \
+            --direct-only \
+            --max-packages "$MAX_PACKAGES" \
+            2>&1 | tee reports/foxhole-db-update.txt
+          db_code=$?
+
+          ./bin/foxhole "$TARGET_DIR" \
+            --db-path "$FOXHOLE_DB_PATH" \
+            --offline \
+            --report console,json \
+            --split-reports \
+            2>&1 | tee reports/foxhole-scan.txt
+          scan_code=$?
+          set -e
+
+          # JSON report may be foxhole-report.json depending on writer naming
+          if [ -f foxhole-report.json ]; then
+            cp foxhole-report.json reports/foxhole-report.json
+          elif [ -f foxhole-evidence/result.json ]; then
+            cp foxhole-evidence/result.json reports/foxhole-report.json
+          fi
+          # Collect split reports if present
+          for f in foxhole-vulns.json foxhole-secrets.json foxhole-eol.json \
+                   foxhole-misconfig.json foxhole-licenses.json; do
+            [ -f "$f" ] && cp "$f" "reports/$f" || true
+          done
+
+          python3 - <<'PY' | tee reports/foxhole-counts.txt
+          import json, os, pathlib, sys
+          path = None
+          for p in ("reports/foxhole-report.json", "foxhole-report.json"):
+              if os.path.isfile(p):
+                  path = p
+                  break
+          counts = {"total": 0, "vuln": 0, "secret": 0, "eol": 0, "misconfig": 0, "license": 0, "other": 0}
+          samples = []
+          if path:
+              data = json.load(open(path))
+              result = data.get("result", data)
+              findings = result.get("findings") or []
+              counts["total"] = len(findings)
+              for f in findings:
+                  k = (f.get("kind") or "other").lower()
+                  if k not in counts:
+                      counts["other"] += 1
+                  else:
+                      counts[k] += 1
+                  if len(samples) < 8:
+                      samples.append({
+                          "kind": k,
+                          "id": f.get("vuln_id") or f.get("rule_id") or f.get("license") or "",
+                          "severity": f.get("severity", ""),
+                          "summary": (f.get("summary") or "")[:120],
+                      })
+          else:
+              print("WARN: no foxhole JSON report found", file=sys.stderr)
+          pathlib.Path("reports/foxhole-counts.json").write_text(json.dumps({"counts": counts, "samples": samples}, indent=2) + "\n")
+          print(json.dumps(counts))
+          PY
+
+          echo "foxhole_exit=${scan_code}" >> "$GITHUB_OUTPUT"
+          echo "db_exit=${db_code}" >> "$GITHUB_OUTPUT"
+
+      - name: TruffleHog — filesystem scan
+        id: trufflehog
+        continue-on-error: true
+        run: |
+          mkdir -p reports
+          set +e
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE/$TARGET_DIR:/pwd:ro" \
+            trufflesecurity/trufflehog:latest \
+            filesystem /pwd --json --no-update \
+            > reports/trufflehog.jsonl 2> reports/trufflehog-stderr.txt
+          code=$?
+          set -e
+          echo "trufflehog_exit=${code}" >> "$GITHUB_OUTPUT"
+
+          python3 - <<'PY' | tee reports/trufflehog-counts.txt
+          import json, pathlib
+          path = pathlib.Path("reports/trufflehog.jsonl")
+          findings = []
+          if path.is_file() and path.stat().st_size:
+              for line in path.read_text().splitlines():
+                  line = line.strip()
+                  if not line:
+                      continue
+                  try:
+                      findings.append(json.loads(line))
+                  except json.JSONDecodeError:
+                      pass
+          verified = sum(1 for f in findings if f.get("Verified") is True)
+          detectors = {}
+          samples = []
+          for f in findings:
+              d = (f.get("DetectorName") or f.get("DetectorType") or "unknown")
+              detectors[d] = detectors.get(d, 0) + 1
+              if len(samples) < 8:
+                  raw = f.get("Raw") or f.get("Redacted") or ""
+                  samples.append({
+                      "detector": d,
+                      "verified": bool(f.get("Verified")),
+                      "file": (f.get("SourceMetadata") or {}).get("Data", {}).get("Filesystem", {}).get("file")
+                          or (f.get("SourceMetadata") or {}).get("Data", {}).get("Git", {}).get("file")
+                          or "",
+                      "preview": str(raw)[:40],
+                  })
+          out = {
+              "counts": {"total": len(findings), "verified": verified, "unverified": len(findings) - verified},
+              "detectors": detectors,
+              "samples": samples,
+          }
+          pathlib.Path("reports/trufflehog-counts.json").write_text(json.dumps(out, indent=2) + "\n")
+          print(json.dumps(out["counts"]))
+          PY
+
+      - name: Gitleaks — detect
+        id: gitleaks
+        continue-on-error: true
+        run: |
+          mkdir -p reports
+          set +e
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/work" \
+            -w /work \
+            zricethezav/gitleaks:latest \
+            detect --source=/work/"$TARGET_DIR" --no-git \
+            --report-format json --report-path=/work/reports/gitleaks-report.json \
+            > reports/gitleaks-stdout.txt 2> reports/gitleaks-stderr.txt
+          code=$?
+          set -e
+          echo "gitleaks_exit=${code}" >> "$GITHUB_OUTPUT"
+          if [ ! -f reports/gitleaks-report.json ]; then
+            echo '[]' > reports/gitleaks-report.json
+          fi
+
+          python3 - <<'PY' | tee reports/gitleaks-counts.txt
+          import json, pathlib
+          path = pathlib.Path("reports/gitleaks-report.json")
+          findings = json.loads(path.read_text() or "[]")
+          if isinstance(findings, dict):
+              findings = findings.get("findings") or findings.get("Findings") or []
+          rules = {}
+          samples = []
+          for f in findings:
+              r = f.get("RuleID") or f.get("Description") or "unknown"
+              rules[r] = rules.get(r, 0) + 1
+              if len(samples) < 8:
+                  samples.append({
+                      "rule": r,
+                      "file": f.get("File") or f.get("FilePath") or "",
+                      "secret": str(f.get("Secret") or f.get("Match") or "")[:40],
+                  })
+          out = {"counts": {"total": len(findings)}, "rules": rules, "samples": samples}
+          pathlib.Path("reports/gitleaks-counts.json").write_text(json.dumps(out, indent=2) + "\n")
+          print(json.dumps(out["counts"]))
+          PY
+
+      - name: Side-by-side comparison (log + summary)
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import json, pathlib, os
+
+          def load(p, default):
+              path = pathlib.Path(p)
+              if not path.is_file():
+                  return default
+              return json.loads(path.read_text())
+
+          fh = load("reports/foxhole-counts.json", {"counts": {}, "samples": []})
+          th = load("reports/trufflehog-counts.json", {"counts": {}, "samples": [], "detectors": {}})
+          gl = load("reports/gitleaks-counts.json", {"counts": {}, "samples": [], "rules": {}})
+
+          fc = fh.get("counts") or {}
+          tc = th.get("counts") or {}
+          gc = gl.get("counts") or {}
+
+          lines = []
+          lines.append("=" * 72)
+          lines.append("JUICE SHOP TOOL COMPARISON")
+          lines.append(f"Target: juice-shop @ {os.environ.get('JUICE_REF', '?')}")
+          lines.append("=" * 72)
+          lines.append("")
+          lines.append(f"{'Tool':<14} {'Total':>8}  Notes")
+          lines.append("-" * 72)
+          lines.append(
+              f"{'Foxhole':<14} {fc.get('total', 0):>8}  "
+              f"vuln={fc.get('vuln', 0)} secret={fc.get('secret', 0)} "
+              f"eol={fc.get('eol', 0)} misconfig={fc.get('misconfig', 0)} license={fc.get('license', 0)}"
+          )
+          lines.append(
+              f"{'TruffleHog':<14} {tc.get('total', 0):>8}  "
+              f"verified={tc.get('verified', 0)} unverified={tc.get('unverified', 0)}"
+          )
+          lines.append(
+              f"{'Gitleaks':<14} {gc.get('total', 0):>8}  "
+              f"rules={len(gl.get('rules') or {})}"
+          )
+          lines.append("")
+          lines.append("NOTE: Totals are not apples-to-apples.")
+          lines.append("  Foxhole counts all finding kinds (vulns, secrets, EOL, …).")
+          lines.append("  TruffleHog / Gitleaks count secret-like detections only.")
+          lines.append("  Foxhole secrets alone: "
+                       f"{fc.get('secret', 0)}  |  TruffleHog: {tc.get('total', 0)}  |  Gitleaks: {gc.get('total', 0)}")
+          lines.append("")
+
+          def section(title, samples, fmt):
+              lines.append("-" * 72)
+              lines.append(title)
+              lines.append("-" * 72)
+              if not samples:
+                  lines.append("  (no samples)")
+                  return
+              for s in samples:
+                  lines.append("  " + fmt(s))
+
+          section(
+              "Foxhole sample findings",
+              fh.get("samples") or [],
+              lambda s: f"[{s.get('severity','?'):<8}] ({s.get('kind')}) {s.get('id')}: {s.get('summary')}",
+          )
+          section(
+              "TruffleHog sample findings",
+              th.get("samples") or [],
+              lambda s: f"[verified={s.get('verified')}] {s.get('detector')} file={s.get('file')} preview={s.get('preview')!r}",
+          )
+          section(
+              "Gitleaks sample findings",
+              gl.get("samples") or [],
+              lambda s: f"{s.get('rule')} file={s.get('file')} secret={s.get('secret')!r}",
+          )
+
+          if th.get("detectors"):
+              lines.append("")
+              lines.append("TruffleHog detectors (top):")
+              for name, n in sorted((th.get("detectors") or {}).items(), key=lambda x: -x[1])[:15]:
+                  lines.append(f"  {n:>4}  {name}")
+
+          if gl.get("rules"):
+              lines.append("")
+              lines.append("Gitleaks rules (top):")
+              for name, n in sorted((gl.get("rules") or {}).items(), key=lambda x: -x[1])[:15]:
+                  lines.append(f"  {n:>4}  {name}")
+
+          lines.append("")
+          lines.append("=" * 72)
+          text = "\n".join(lines) + "\n"
+          print(text)
+          pathlib.Path("reports/comparison.txt").write_text(text)
+
+          # GitHub Step Summary (markdown)
+          md = []
+          md.append("## Juice Shop tool comparison")
+          md.append("")
+          md.append(f"Target: `juice-shop` @ `{os.environ.get('JUICE_REF', '?')}`")
+          md.append("")
+          md.append("| Tool | Total | Detail |")
+          md.append("|------|------:|--------|")
+          md.append(
+              f"| Foxhole | {fc.get('total', 0)} | "
+              f"vuln={fc.get('vuln', 0)}, secret={fc.get('secret', 0)}, "
+              f"eol={fc.get('eol', 0)}, misconfig={fc.get('misconfig', 0)}, license={fc.get('license', 0)} |"
+          )
+          md.append(
+              f"| TruffleHog | {tc.get('total', 0)} | "
+              f"verified={tc.get('verified', 0)}, unverified={tc.get('unverified', 0)} |"
+          )
+          md.append(f"| Gitleaks | {gc.get('total', 0)} | secret-oriented rules |")
+          md.append("")
+          md.append("### Secrets-only slice")
+          md.append("")
+          md.append("| Tool | Secret-like findings |")
+          md.append("|------|---------------------:|")
+          md.append(f"| Foxhole (`kind=secret`) | {fc.get('secret', 0)} |")
+          md.append(f"| TruffleHog | {tc.get('total', 0)} |")
+          md.append(f"| Gitleaks | {gc.get('total', 0)} |")
+          md.append("")
+          md.append("Full log: `reports/comparison.txt` (also in job log above).")
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as f:
+              f.write("\n".join(md) + "\n")
+          PY
+
+      - name: Upload comparison artifacts
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: juice-shop-tool-comparison
+          path: |
+            reports/
+            foxhole-version.txt
+            target-size.txt
+          if-no-files-found: warn
