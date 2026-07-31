@@ -7,23 +7,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jasonflaherty/foxhole/internal/archive"
 	"github.com/jasonflaherty/foxhole/internal/config"
 	"github.com/jasonflaherty/foxhole/internal/db"
 	"github.com/jasonflaherty/foxhole/internal/dbbundle"
-	"github.com/jasonflaherty/foxhole/internal/diff"
-	"github.com/jasonflaherty/foxhole/internal/evidence"
 	"github.com/jasonflaherty/foxhole/internal/logger"
-	"github.com/jasonflaherty/foxhole/internal/notify"
-	"github.com/jasonflaherty/foxhole/internal/pluginadapt"
 	"github.com/jasonflaherty/foxhole/internal/policy"
-	"github.com/jasonflaherty/foxhole/internal/remediate"
-	"github.com/jasonflaherty/foxhole/internal/report"
 	"github.com/jasonflaherty/foxhole/internal/scan"
 	"github.com/jasonflaherty/foxhole/internal/seeds"
-	"github.com/jasonflaherty/foxhole/internal/triage"
 	"github.com/jasonflaherty/foxhole/internal/version"
-	"github.com/jasonflaherty/foxhole/pkg/plugin"
 	"github.com/jasonflaherty/foxhole/pkg/provider"
 	"github.com/jasonflaherty/foxhole/pkg/provider/epss"
 	"github.com/jasonflaherty/foxhole/pkg/provider/ghsa"
@@ -40,9 +31,18 @@ func NewRootCommand() *cobra.Command {
 	v := config.NewViper()
 
 	root := &cobra.Command{
-		Use:           "foxhole [path]",
-		Short:         "Offline-first software supply chain security scanner",
-		Long:          "Foxhole scans projects for vulnerabilities using local NVD/OSV data.",
+		Use:   "foxhole [path]",
+		Short: "Offline-first workspace CI gate for supply-chain findings",
+		Long: `Foxhole scans a workspace for dependency vulns, secrets, EOL runtimes,
+risky licenses, and Dockerfile issues — one findings list, deterministic
+exit codes for CI (0 OK, 1 tool/stale DB, 2 policy).
+
+Typical flow:
+  foxhole db update .                 # refresh local vuln DB
+  foxhole . --policy policy.yaml      # scan + gate
+  foxhole . --evidence --offline      # audit pack from air-gapped DB
+
+See docs/V1.md for the supported product contract.`,
 		Version:       version.Version,
 		Args:          cobra.MaximumNArgs(1),
 		SilenceUsage:  true,
@@ -63,61 +63,9 @@ func NewRootCommand() *cobra.Command {
 		RunE: runScan,
 	}
 
-	root.PersistentFlags().String("db-path", config.DefaultDBPath(), "path to SQLite database")
-	root.PersistentFlags().Bool("offline", false, "disable network access")
-	root.PersistentFlags().String("log-level", "info", "log level (debug, info, warn, error)")
-	root.PersistentFlags().String("nvd-api-key", "", "optional NVD API key")
-	root.Flags().String("report", "console", "report formats: console,json,markdown,html,sarif,junit,cyclonedx,spdx")
-	root.Flags().Bool("secrets", true, "enable secret scanning")
-	root.Flags().Bool("eol", true, "enable end-of-life checks")
-	root.Flags().Bool("misconfig", true, "enable Dockerfile misconfiguration checks")
-	root.Flags().Bool("licenses", true, "enable license risk checks")
-	root.Flags().Bool("enrich", true, "enrich vulns with KEV/EPSS")
-	root.Flags().Bool("archive", false, "write reports under archive/YYYY/MM/DD/")
-	root.Flags().String("archive-dir", "archive", "base directory for archived reports")
-	root.Flags().Bool("github", false, "open a GitHub issue with full scan summary")
-	root.Flags().Bool("github-diff", false, "open/close GitHub issues for findings new/fixed vs last green scan")
-	root.Flags().Bool("teams", false, "post scan summary to Microsoft Teams webhook")
-	root.Flags().Bool("email", false, "email scan summary via SMTP")
-	root.Flags().Bool("slack", false, "post to Slack webhook")
-	root.Flags().Bool("discord", false, "post to Discord webhook")
-	root.Flags().Bool("webhook", false, "post JSON to FOXHOLE_WEBHOOK_URL")
-	root.Flags().Bool("github-checks", false, "create a GitHub Check Run")
-	root.Flags().Bool("remediate", false, "write remediation suggestions (markdown+json)")
-	root.Flags().Bool("remediate-ai", false, "enrich remediation with OpenAI-compatible API")
-	root.Flags().Bool("triage", false, "write triage groups + suggested suppressions (deterministic)")
-	root.Flags().Bool("triage-ai", false, "enrich triage narratives with OpenAI-compatible API")
-	root.Flags().Bool("evidence", false, "write foxhole-evidence/ audit pack (manifest, policy, SARIF, suppressions)")
-	root.Flags().String("evidence-dir", "foxhole-evidence", "directory for evidence pack")
-	root.Flags().String("fail-on", "", "fail CI if findings at or above severity (critical|high|medium|low|info|any)")
-	root.Flags().String("policy", "", "path to policy YAML (fail_on, kinds, ignore, suppressions)")
-	root.Flags().String("policy-dir", "", "merge all *.yaml policy files in directory (org policy packs)")
-	root.Flags().StringSlice("fail-on-kind", nil, "limit policy to finding kinds; repeatable")
-	root.Flags().Bool("split-reports", false, "also write per-kind JSON: foxhole-vulns.json, foxhole-secrets.json, …")
-	root.Flags().String("max-db-age", "", "fail scan (exit 1) if vulnerability DB older than duration (e.g. 720h); empty disables")
-
-	_ = v.BindPFlag("db_path", root.PersistentFlags().Lookup("db-path"))
-	_ = v.BindPFlag("offline", root.PersistentFlags().Lookup("offline"))
-	_ = v.BindPFlag("log_level", root.PersistentFlags().Lookup("log-level"))
-	_ = v.BindPFlag("nvd_api_key", root.PersistentFlags().Lookup("nvd-api-key"))
-	_ = v.BindPFlag("report", root.Flags().Lookup("report"))
-	_ = v.BindPFlag("secrets", root.Flags().Lookup("secrets"))
-	_ = v.BindPFlag("eol", root.Flags().Lookup("eol"))
-	_ = v.BindPFlag("misconfig", root.Flags().Lookup("misconfig"))
-	_ = v.BindPFlag("licenses", root.Flags().Lookup("licenses"))
-	_ = v.BindPFlag("enrich", root.Flags().Lookup("enrich"))
-	_ = v.BindPFlag("archive_dir", root.Flags().Lookup("archive-dir"))
-	_ = v.BindPFlag("fail_on", root.Flags().Lookup("fail-on"))
-	_ = v.BindPFlag("policy", root.Flags().Lookup("policy"))
-	_ = v.BindPFlag("policy_dir", root.Flags().Lookup("policy-dir"))
-	_ = v.BindPFlag("remediate", root.Flags().Lookup("remediate"))
-	_ = v.BindPFlag("remediate_ai", root.Flags().Lookup("remediate-ai"))
-	_ = v.BindPFlag("split_reports", root.Flags().Lookup("split-reports"))
-	_ = v.BindPFlag("max_db_age", root.Flags().Lookup("max-db-age"))
-	_ = v.BindPFlag("evidence", root.Flags().Lookup("evidence"))
-	_ = v.BindPFlag("evidence_dir", root.Flags().Lookup("evidence-dir"))
-	_ = v.BindPFlag("triage", root.Flags().Lookup("triage"))
-	_ = v.BindPFlag("triage_ai", root.Flags().Lookup("triage-ai"))
+	registerGlobalFlags(root, v)
+	groups := registerRootFlags(root, v)
+	setGroupedHelp(root, groups)
 
 	root.AddCommand(newDBCommand(v))
 	root.AddCommand(newVersionCommand())
@@ -126,241 +74,6 @@ func NewRootCommand() *cobra.Command {
 	root.AddCommand(newServeCommand(v))
 	root.AddCommand(newPolicyCommand())
 	return root
-}
-
-func runScan(cmd *cobra.Command, args []string) error {
-	cfg := configFrom(cmd)
-	target := "."
-	if len(args) == 1 {
-		target = args[0]
-	}
-	abs, err := filepath.Abs(target)
-	if err != nil {
-		return err
-	}
-
-	database, err := db.Open(expandPath(cfg.DBPath))
-	if err != nil {
-		return err
-	}
-	defer func() { _ = database.Close() }()
-
-	if err := ensurePhase2Data(cmd.Context(), database); err != nil {
-		return err
-	}
-
-	if err := checkDBFreshness(cmd, database, cfg.MaxDBAge); err != nil {
-		return err
-	}
-
-	osvProv := osv.New(database, osv.WithOffline(cfg.Offline))
-	nvdProv := nvd.New(database, nvd.WithOffline(cfg.Offline), nvd.WithAPIKey(cfg.NVDAPIKey))
-	ghsaProv := ghsa.New(database)
-	engine := scan.NewEngine(database, osvProv, nvdProv, ghsaProv).
-		WithOptions(scan.EngineOptions{
-			Secrets:   cfg.Secrets,
-			EOL:       cfg.EOL,
-			Misconfig: cfg.Misconfig,
-			Licenses:  cfg.Licenses,
-			Enrich:    cfg.Enrich,
-		}).
-		WithPlugins(pluginadapt.Runner{Reg: plugin.NewRegistry()})
-
-	doArchive, _ := cmd.Flags().GetBool("archive")
-	doGitHub, _ := cmd.Flags().GetBool("github")
-	doGitHubDiff, _ := cmd.Flags().GetBool("github-diff")
-	doTeams, _ := cmd.Flags().GetBool("teams")
-	doEmail, _ := cmd.Flags().GetBool("email")
-	doSlack, _ := cmd.Flags().GetBool("slack")
-	doDiscord, _ := cmd.Flags().GetBool("discord")
-	doWebhook, _ := cmd.Flags().GetBool("webhook")
-	doChecks, _ := cmd.Flags().GetBool("github-checks")
-
-	histID, err := database.StartScanHistory(cmd.Context(), abs)
-	if err != nil {
-		return fmt.Errorf("scan history: %w", err)
-	}
-
-	logger.L().Info("starting scan",
-		zap.String("target", abs),
-		zap.Bool("offline", cfg.Offline),
-		zap.Bool("secrets", cfg.Secrets),
-		zap.Bool("eol", cfg.EOL),
-	)
-	result, err := engine.Scan(cmd.Context(), abs)
-	if err != nil {
-		_ = database.FinishScanHistory(cmd.Context(), histID, 0, "", "[]", "error")
-		return err
-	}
-
-	formats := report.ParseFormats(cfg.Report)
-	if err := report.WriteAll(formats, result, cmd.OutOrStdout(), "."); err != nil {
-		_ = database.FinishScanHistory(cmd.Context(), histID, len(result.Findings), "", "[]", "error")
-		return err
-	}
-
-	if cfg.SplitReports {
-		if err := report.WriteSplitJSON(result, ".", cmd.OutOrStdout()); err != nil {
-			_ = database.FinishScanHistory(cmd.Context(), histID, len(result.Findings), "", "[]", "error")
-			return fmt.Errorf("split reports: %w", err)
-		}
-	}
-
-	reportPath := ""
-	if doArchive {
-		dir, err := archive.Write(cfg.ArchiveDir, result, result.FinishedAt)
-		if err != nil {
-			_ = database.FinishScanHistory(cmd.Context(), histID, len(result.Findings), "", "[]", "error")
-			return fmt.Errorf("archive: %w", err)
-		}
-		reportPath = dir
-		fmt.Fprintf(cmd.OutOrStdout(), "Archived to %s\n", dir)
-	}
-
-	if cfg.Remediate || cfg.RemediateAI {
-		opts := remediate.FromEnv()
-		opts.AI = cfg.RemediateAI
-		rep, err := remediate.Generate(cmd.Context(), result, opts)
-		if err != nil {
-			return fmt.Errorf("remediate: %w", err)
-		}
-		mdPath := "foxhole-remediation.md"
-		jsonPath := "foxhole-remediation.json"
-		mdFile, err := os.Create(mdPath)
-		if err != nil {
-			return err
-		}
-		if err := remediate.WriteMarkdown(mdFile, rep); err != nil {
-			_ = mdFile.Close()
-			return err
-		}
-		_ = mdFile.Close()
-		jsonFile, err := os.Create(jsonPath)
-		if err != nil {
-			return err
-		}
-		if err := remediate.WriteJSON(jsonFile, rep); err != nil {
-			_ = jsonFile.Close()
-			return err
-		}
-		_ = jsonFile.Close()
-		fmt.Fprintf(cmd.OutOrStdout(), "wrote %s\nwrote %s\n", mdPath, jsonPath)
-	}
-
-	var triageRep *triage.Report
-	if cfg.Triage || cfg.TriageAI {
-		opts := triage.Options{AI: cfg.TriageAI, Options: remediate.FromEnv()}
-		opts.AI = cfg.TriageAI
-		var err error
-		triageRep, err = triage.Generate(cmd.Context(), result, opts)
-		if err != nil {
-			return fmt.Errorf("triage: %w", err)
-		}
-		mdFile, err := os.Create("foxhole-triage.md")
-		if err != nil {
-			return err
-		}
-		if err := triage.WriteMarkdown(mdFile, triageRep); err != nil {
-			_ = mdFile.Close()
-			return err
-		}
-		_ = mdFile.Close()
-		jsonFile, err := os.Create("foxhole-triage.json")
-		if err != nil {
-			return err
-		}
-		if err := triage.WriteJSON(jsonFile, triageRep); err != nil {
-			_ = jsonFile.Close()
-			return err
-		}
-		_ = jsonFile.Close()
-		fmt.Fprintln(cmd.OutOrStdout(), "wrote foxhole-triage.md\nwrote foxhole-triage.json")
-	}
-
-	pol, err := loadScanPolicy(cfg, cmd)
-	if err != nil {
-		return err
-	}
-	decision := policy.Evaluate(pol, result.Findings)
-	policy.WriteSuppressionWarnings(cmd.ErrOrStderr(), decision)
-
-	if cfg.Evidence {
-		dir, err := evidence.Write(cmd.Context(), evidence.Input{
-			Result:       result,
-			Policy:       pol,
-			Decision:     decision,
-			Database:     database,
-			MaxDBAge:     cfg.MaxDBAge,
-			Image:        os.Getenv("FOXHOLE_IMAGE"),
-			ImageDigest:  os.Getenv("FOXHOLE_IMAGE_DIGEST"),
-			SplitReports: cfg.SplitReports,
-			OutDir:       cfg.EvidenceDir,
-		})
-		if err != nil {
-			return fmt.Errorf("evidence: %w", err)
-		}
-		fmt.Fprintf(cmd.OutOrStdout(), "Evidence pack: %s\n", dir)
-	}
-
-	// Baseline for github-diff before finishing this scan.
-	var prevFindings map[string]scan.Finding
-	if doGitHubDiff {
-		green, err := database.LastGreenScan(cmd.Context(), abs)
-		if err != nil {
-			logger.L().Warn("last green scan lookup failed", zap.Error(err))
-		} else if green != nil {
-			prevFindings, _ = diff.SetFromJSON(green.FindingsJSON)
-		}
-	}
-
-	snap, err := diff.SnapshotJSON(result.Findings)
-	if err != nil {
-		snap = "[]"
-	}
-	histStatus := "ok"
-	if decision.Failed {
-		histStatus = "policy_failed"
-	}
-	if err := database.FinishScanHistory(cmd.Context(), histID, len(result.Findings), reportPath, snap, histStatus); err != nil {
-		logger.L().Warn("finish scan history failed", zap.Error(err))
-	}
-
-	ncfg := notify.FromEnv()
-	for _, n := range notify.SelectAll(ncfg, notify.Flags{
-		GitHub: doGitHub, Teams: doTeams, Email: doEmail,
-		Slack: doSlack, Discord: doDiscord, Webhook: doWebhook, GitHubChecks: doChecks,
-	}) {
-		if err := n.Notify(cmd.Context(), result); err != nil {
-			logger.L().Warn("notify failed", zap.String("channel", n.Name()), zap.Error(err))
-			fmt.Fprintf(cmd.ErrOrStderr(), "notify %s: %v\n", n.Name(), err)
-		} else {
-			fmt.Fprintf(cmd.OutOrStdout(), "Notified %s\n", n.Name())
-		}
-	}
-
-	if doGitHubDiff {
-		gd := notify.GitHubDiffNotifier{
-			Token:    ncfg.GitHubToken,
-			Repo:     ncfg.GitHubRepo,
-			Client:   ncfg.Client,
-			DB:       database,
-			Previous: prevFindings,
-			Triage:   triageRep,
-			Target:   abs,
-		}
-		if err := gd.Notify(cmd.Context(), result); err != nil {
-			logger.L().Warn("notify failed", zap.String("channel", gd.Name()), zap.Error(err))
-			fmt.Fprintf(cmd.ErrOrStderr(), "notify %s: %v\n", gd.Name(), err)
-		} else {
-			fmt.Fprintf(cmd.OutOrStdout(), "Notified %s\n", gd.Name())
-		}
-	}
-
-	if decision.Failed {
-		policy.Write(cmd.ErrOrStderr(), decision)
-		return &ExitError{Code: decision.ExitCode(), Err: decision}
-	}
-	return nil
 }
 
 func checkDBFreshness(cmd *cobra.Command, database *db.DB, maxAgeRaw string) error {
@@ -429,7 +142,7 @@ func newDBCommand(v *viper.Viper) *cobra.Command {
 
 	updateCmd := &cobra.Command{
 		Use:   "update [path]",
-		Short: "Update NVD and OSV provider data",
+		Short: "Update NVD, OSV, GHSA, KEV, and EPSS data in the local DB",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			_ = v.BindPFlags(cmd.Flags())
