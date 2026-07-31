@@ -130,20 +130,15 @@ func (d *DB) CountEOL(ctx context.Context) (int, error) {
 	return n, err
 }
 
-// EnsurePhase2Seeds loads secret rules and EOL rows when tables are empty.
+// EnsurePhase2Seeds upserts built-in secret rules (so upgrades pick up new
+// curated patterns) and loads EOL rows when that table is empty.
 func (d *DB) EnsurePhase2Seeds(ctx context.Context, secrets []SecretRule, eols []EOLRecord) error {
-	n, err := d.CountSecretRules(ctx)
-	if err != nil {
-		return err
-	}
-	if n == 0 {
-		for _, r := range secrets {
-			if err := d.UpsertSecretRule(ctx, r); err != nil {
-				return fmt.Errorf("seed secret rule %s: %w", r.ID, err)
-			}
+	for _, r := range secrets {
+		if err := d.UpsertSecretRule(ctx, r); err != nil {
+			return fmt.Errorf("seed secret rule %s: %w", r.ID, err)
 		}
 	}
-	n, err = d.CountEOL(ctx)
+	n, err := d.CountEOL(ctx)
 	if err != nil {
 		return err
 	}

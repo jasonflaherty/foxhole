@@ -4,11 +4,13 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/jasonflaherty/foxhole/internal/db"
 	"github.com/jasonflaherty/foxhole/internal/scan"
+	"github.com/jasonflaherty/foxhole/internal/seeds"
 )
 
 func TestSecretsScannerFindsAWSKey(t *testing.T) {
@@ -37,6 +39,59 @@ func TestSecretsScannerFindsAWSKey(t *testing.T) {
 	}
 	if len(findings) != 1 || findings[0].Kind != scan.KindSecret {
 		t.Fatalf("findings = %#v", findings)
+	}
+}
+
+func TestSecretsScannerCuratedPack(t *testing.T) {
+	t.Parallel()
+	database, err := db.Open(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = database.Close() }()
+	ctx := context.Background()
+
+	rules, err := seeds.SecretRules()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := database.EnsurePhase2Seeds(ctx, rules, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	dir := t.TempDir()
+	content := strings.Join([]string{
+		"AWS_ACCESS_KEY_ID=" + "AKIA" + "IOSFODNN7EXAMPLE",
+		"GOOGLE_KEY=" + "AIza" + "SyA-" + "abcdefghijklmnopqrstuvwxyz12345",
+		"GH_TOKEN=" + "ghp_" + strings.Repeat("a", 36),
+		"AUTH=" + "eyJ" + "hbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9." + "eyJ" + "zdWIiOiIxMjM0NTY3ODkwIn0." + "testsig",
+		"-----BEGIN OPENSSH PRIVATE KEY-----",
+		"",
+	}, "\n")
+	if err := os.WriteFile(filepath.Join(dir, "secrets.env"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	findings, err := scan.NewSecretsScanner(database).Scan(ctx, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]bool{
+		"aws-access-key": false,
+		"gcp-api-key":    false,
+		"github-pat":     false,
+		"jwt":            false,
+		"private-key":    false,
+	}
+	for _, f := range findings {
+		if _, ok := want[f.RuleID]; ok {
+			want[f.RuleID] = true
+		}
+	}
+	for id, found := range want {
+		if !found {
+			t.Fatalf("missing finding for %s; got %#v", id, findings)
+		}
 	}
 }
 

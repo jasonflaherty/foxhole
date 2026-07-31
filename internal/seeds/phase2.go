@@ -7,6 +7,9 @@ import (
 	"github.com/jasonflaherty/foxhole/internal/db"
 )
 
+// Curated high-confidence token/key patterns (AWS, GCP, Azure, GitHub, JWT,
+// PEM/PGP, Slack, Stripe, …). Prefer branded prefixes over generic entropy.
+//
 //go:embed secrets.json
 var SecretsJSON []byte
 
