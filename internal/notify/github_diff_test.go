@@ -46,10 +46,10 @@ func TestGitHubDiffOpenAndClose(t *testing.T) {
 
 	added := scan.Finding{Kind: scan.KindVuln, VulnID: "CVE-NEW", Severity: "high", Summary: "n", Source: "nvd"}
 	n := notify.GitHubDiffNotifier{
-		Token:  "t",
-		Repo:   "o/r",
-		Client: client,
-		DB:     database,
+		Token:    "t",
+		Repo:     "o/r",
+		Client:   client,
+		DB:       database,
 		Previous: map[string]scan.Finding{},
 	}
 	result := &scan.Result{Target: "/app", Findings: []scan.Finding{added}}
