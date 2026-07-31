@@ -22,13 +22,13 @@ No Jenkins plugin is required — only Docker (or a binary on the agent). Option
 ## Image pins and cosign
 
 Published tags come from [`.github/workflows/publish-image.yml`](../../.github/workflows/publish-image.yml):
-`:latest` on `main`, and version tags like `:v0.3.0` on `v*` releases.
+`:latest` on `main`, and version tags like `:v0.4.0` on `v*` releases.
 
 **Prefer a version tag or digest** — never `:latest` in enterprise CI:
 
 ```bash
 # Tag pin
-export FOXHOLE_IMAGE=ghcr.io/jasonflaherty/foxhole:v0.3.0
+export FOXHOLE_IMAGE=ghcr.io/jasonflaherty/foxhole:v0.4.0
 
 # Immutable digest pin (recommended)
 export FOXHOLE_IMAGE=ghcr.io/jasonflaherty/foxhole@sha256:<digest>
@@ -70,7 +70,7 @@ pipeline {
     stage('Foxhole') {
       steps {
         foxholeScan(
-          image: 'ghcr.io/jasonflaherty/foxhole:v0.3.0',
+          image: 'ghcr.io/jasonflaherty/foxhole:v0.4.0',
           failOn: 'high',
           kinds: ['vuln', 'secret'],
           requireCosign: false,

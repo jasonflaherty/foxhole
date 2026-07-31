@@ -37,8 +37,8 @@ Or install the binary / pull the image:
 ```bash
 go install github.com/jasonflaherty/foxhole/cmd/foxhole@latest
 # or
-docker pull ghcr.io/jasonflaherty/foxhole:v0.3.0
-# Docker Hub (if published): docker pull <hub-user>/foxhole:v0.3.0
+docker pull ghcr.io/jasonflaherty/foxhole:v0.4.0
+# Docker Hub (if published): docker pull <hub-user>/foxhole:v0.4.0
 ```
 
 ## Mental model
@@ -68,7 +68,7 @@ Detection is always deterministic. `--triage-ai` / `--remediate-ai` only draft t
 | `kind` | Meaning |
 |--------|---------|
 | `vuln` | Dependency advisory (NVD / OSV / GHSA) |
-| `secret` | Credential pattern |
+| `secret` | Credential pattern (curated AWS/GCP/Azure/GitHub/JWT/PEM/… rules) |
 | `eol` | End-of-life runtime |
 | `misconfig` | Dockerfile hardening |
 | `license` | High-risk license signal |
@@ -216,7 +216,7 @@ foxhole serve --addr :8080
 docker run --rm \
   -v foxhole-data:/var/lib/foxhole \
   -v "$PWD:/work:ro" \
-  ghcr.io/jasonflaherty/foxhole:v0.3.0 /work --offline
+  ghcr.io/jasonflaherty/foxhole:v0.4.0 /work --offline
 
 ./docker/run-demo.sh    # offline go-demo in one shot
 ```

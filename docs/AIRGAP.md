@@ -43,7 +43,7 @@ Or run [publish-db-bundle.yml](../.github/workflows/publish-db-bundle.yml).
 cosign verify \
   --certificate-identity-regexp='https://github.com/jasonflaherty/foxhole/\.github/workflows/publish-image\.yml@.*' \
   --certificate-oidc-issuer='https://token.actions.githubusercontent.com' \
-  ghcr.io/jasonflaherty/foxhole:v0.3.0
+  ghcr.io/jasonflaherty/foxhole:v0.4.0
 
 foxhole db import ./foxhole-db-YYYYMMDD.tar.gz
 foxhole . --offline --max-db-age 720h \
