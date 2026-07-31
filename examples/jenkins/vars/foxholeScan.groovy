@@ -2,7 +2,7 @@
 // Install as a shared library (vars/) or copy into your org library.
 //
 // foxholeScan(
-//   image: 'ghcr.io/jasonflaherty/foxhole:v0.4.0',
+//   image: 'ghcr.io/jasonflaherty/foxhole:v0.4.1',
 //   failOn: 'high',
 //   kinds: ['vuln','secret'],
 //   requireCosign: false,
@@ -14,7 +14,7 @@
 // )
 
 def call(Map args = [:]) {
-  def image = args.image ?: (env.FOXHOLE_IMAGE ?: 'ghcr.io/jasonflaherty/foxhole:v0.4.0')
+  def image = args.image ?: (env.FOXHOLE_IMAGE ?: 'ghcr.io/jasonflaherty/foxhole:v0.4.1')
   def failOn = args.failOn ?: 'high'
   def requireCosign = (args.requireCosign ?: false).toString()
   def maxDbAge = args.maxDbAge ?: '720h'

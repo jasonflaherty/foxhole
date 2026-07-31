@@ -3,6 +3,9 @@
 **Fastest path:** copy [Jenkinsfile](Jenkinsfile) + [foxhole-policy.yaml](foxhole-policy.yaml)
 into your app repo, set `FOXHOLE_IMAGE` to a version tag or digest, run the pipeline.
 
+For air-gapped CI, use the pair [Jenkinsfile.nightly](Jenkinsfile.nightly) (networked)
++ [Jenkinsfile.airgap](Jenkinsfile.airgap) (offline) instead of refreshing providers on every PR.
+
 Foxhole is a pipeline stage: pull a **pinned** image, optionally verify with
 cosign, update (or import) the vuln DB, scan, archive reports/evidence, and fail
 on exit **2** (policy) or **1** (stale DB / infra).
@@ -22,13 +25,13 @@ No Jenkins plugin is required — only Docker (or a binary on the agent). Option
 ## Image pins and cosign
 
 Published tags come from [`.github/workflows/publish-image.yml`](../../.github/workflows/publish-image.yml):
-`:latest` on `main`, and version tags like `:v0.4.0` on `v*` releases.
+`:latest` on `main`, and version tags like `:v0.4.1` on `v*` releases.
 
 **Prefer a version tag or digest** — never `:latest` in enterprise CI:
 
 ```bash
 # Tag pin
-export FOXHOLE_IMAGE=ghcr.io/jasonflaherty/foxhole:v0.4.0
+export FOXHOLE_IMAGE=ghcr.io/jasonflaherty/foxhole:v0.4.1
 
 # Immutable digest pin (recommended)
 export FOXHOLE_IMAGE=ghcr.io/jasonflaherty/foxhole@sha256:<digest>
@@ -70,7 +73,7 @@ pipeline {
     stage('Foxhole') {
       steps {
         foxholeScan(
-          image: 'ghcr.io/jasonflaherty/foxhole:v0.4.0',
+          image: 'ghcr.io/jasonflaherty/foxhole:v0.4.1',
           failOn: 'high',
           kinds: ['vuln', 'secret'],
           requireCosign: false,
@@ -139,10 +142,34 @@ suppressions:
 Expired suppressions no longer skip. Foxhole prints a warning when a suppression
 is used.
 
+## Air-gap pair (nightly + offline)
+
+Use two jobs instead of refreshing NVD/OSV on every PR:
+
+| File | Agent | Purpose |
+|------|-------|---------|
+| [Jenkinsfile.nightly](Jenkinsfile.nightly) | Networked | Cron `H 6 * * *` → `db update` → `db export` → archive `foxhole-db-YYYYMMDD.tar.gz` |
+| [Jenkinsfile.airgap](Jenkinsfile.airgap) | Air-gapped | Import bundle → `scan --offline --max-db-age` → evidence |
+
+Wire them together:
+
+1. Create a freestyle/pipeline job from `Jenkinsfile.nightly` (name e.g. `foxhole-db-nightly`).
+2. On the offline app pipeline, set `FOXHOLE_BUNDLE_JOB=foxhole-db-nightly` so
+   [Copy Artifact](https://plugins.jenkins.io/copyartifact/) pulls the latest bundle
+   (or place `foxhole-db-bundle.tar.gz` on the agent / set `FOXHOLE_DB_BUNDLE`).
+3. Point `FOXHOLE_IMAGE` at an internal mirror of the pinned Foxhole image.
+
+Matching GitHub Actions YAML:
+
+- [nightly-db-bundle.yml](../../.github/workflows/nightly-db-bundle.yml)
+- [airgap-offline-scan.yml](../../.github/workflows/airgap-offline-scan.yml)
+
+Full runbook: [../../docs/AIRGAP.md](../../docs/AIRGAP.md).
+
 ## Patterns
 
 1. **Shared DB** — Persist `.foxhole/foxhole.db` so PR jobs can run with `--offline` after a nightly `db update`.
-2. **Offline PRs** — Warm the DB in a scheduled job; PR pipelines use `--offline`.
+2. **Offline PRs** — Prefer the air-gap pair above; warm via nightly bundle, PR pipelines use `--offline`.
 3. **Credentials** — Inject `FOXHOLE_NVD_API_KEY` and notify webhooks from Jenkins credentials.
 4. **Notify** — Add `--teams` / `--email` / `--github` when those env vars are set.
 5. **GHCR auth** — `docker login ghcr.io` if the package is private.

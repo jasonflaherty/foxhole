@@ -1,0 +1,135 @@
+// Air-gapped / offline Foxhole scan.
+// No outbound calls to NVD/OSV — import a DB bundle produced by
+// Jenkinsfile.nightly (or nightly-db-bundle.yml), then scan with --offline.
+//
+// Required on the agent (or inject via credentials / copyArtifacts):
+//   FOXHOLE_DB_BUNDLE  — path to foxhole-db-YYYYMMDD.tar.gz (default: foxhole-db-bundle.tar.gz)
+//   FOXHOLE_IMAGE      — internal mirror of ghcr.io/jasonflaherty/foxhole:<tag|@digest>
+//
+// Copy foxhole-policy.yaml (or use --policy-dir) into the app repo.
+
+pipeline {
+  agent any
+
+  environment {
+    FOXHOLE_IMAGE = "${env.FOXHOLE_IMAGE ?: 'ghcr.io/jasonflaherty/foxhole:v0.4.1'}"
+    FOXHOLE_DB_PATH = "${WORKSPACE}/.foxhole/foxhole.db"
+    FOXHOLE_DB_BUNDLE = "${env.FOXHOLE_DB_BUNDLE ?: 'foxhole-db-bundle.tar.gz'}"
+    FOXHOLE_REQUIRE_COSIGN = "${env.FOXHOLE_REQUIRE_COSIGN ?: 'false'}"
+    FOXHOLE_MAX_DB_AGE = "${env.FOXHOLE_MAX_DB_AGE ?: '720h'}"
+  }
+
+  options {
+    timestamps()
+    timeout(time: 30, unit: 'MINUTES')
+  }
+
+  stages {
+    stage('Checkout') {
+      steps {
+        checkout scm
+      }
+    }
+
+    stage('Fetch DB bundle') {
+      when {
+        expression { return env.FOXHOLE_BUNDLE_JOB?.trim() }
+      }
+      steps {
+        // Copy last successful nightly artifact into the workspace.
+        // Set FOXHOLE_BUNDLE_JOB to the nightly job name, e.g. foxhole-db-nightly.
+        copyArtifacts(
+          projectName: "${env.FOXHOLE_BUNDLE_JOB}",
+          filter: 'foxhole-db-*.tar.gz',
+          selector: lastSuccessful(),
+          flatten: true,
+          optional: false
+        )
+        sh '''
+          set -eu
+          BUNDLE=$(ls -1t foxhole-db-*.tar.gz | head -1)
+          cp -f "$BUNDLE" "$FOXHOLE_DB_BUNDLE"
+          echo "Using bundle: $BUNDLE -> $FOXHOLE_DB_BUNDLE"
+        '''
+      }
+    }
+
+    stage('Pull and verify image') {
+      steps {
+        sh '''
+          set -eu
+          # Prefer an internal registry mirror already present on the agent.
+          docker pull "$FOXHOLE_IMAGE"
+          if [ "${FOXHOLE_REQUIRE_COSIGN}" = "true" ]; then
+            command -v cosign >/dev/null 2>&1 || { echo "cosign required" >&2; exit 1; }
+            cosign verify \
+              --certificate-identity-regexp='https://github.com/jasonflaherty/foxhole/\.github/workflows/publish-image\.yml@.*' \
+              --certificate-oidc-issuer='https://token.actions.githubusercontent.com' \
+              "$FOXHOLE_IMAGE"
+          fi
+        '''
+      }
+    }
+
+    stage('Import DB bundle') {
+      steps {
+        sh '''
+          set -eu
+          if [ ! -f "$FOXHOLE_DB_BUNDLE" ]; then
+            echo "Missing DB bundle at $FOXHOLE_DB_BUNDLE" >&2
+            echo "Set FOXHOLE_DB_BUNDLE or FOXHOLE_BUNDLE_JOB (nightly copyArtifacts)." >&2
+            exit 1
+          fi
+          mkdir -p "$(dirname "$FOXHOLE_DB_PATH")"
+          rm -f "$FOXHOLE_DB_PATH"
+          docker run --rm \
+            -v "$WORKSPACE:/work" \
+            -e FOXHOLE_DB_PATH=/work/.foxhole/foxhole.db \
+            -w /work \
+            "$FOXHOLE_IMAGE" db import "/work/${FOXHOLE_DB_BUNDLE}"
+          docker run --rm \
+            -v "$WORKSPACE:/work" \
+            -e FOXHOLE_DB_PATH=/work/.foxhole/foxhole.db \
+            "$FOXHOLE_IMAGE" db verify | tee db-verify-import.txt
+        '''
+      }
+    }
+
+    stage('Offline scan') {
+      steps {
+        sh '''
+          set -eu
+          POLICY=""
+          if [ -f foxhole-policy.yaml ]; then
+            POLICY="--policy /work/foxhole-policy.yaml"
+          fi
+          POLICY_DIR=""
+          if [ -d policy-pack ]; then
+            POLICY_DIR="--policy-dir /work/policy-pack"
+          fi
+          # Critical: --offline so the agent never reaches NVD/OSV.
+          docker run --rm \
+            -v "$WORKSPACE:/work" \
+            -e FOXHOLE_DB_PATH=/work/.foxhole/foxhole.db \
+            -e FOXHOLE_IMAGE="$FOXHOLE_IMAGE" \
+            -w /work \
+            "$FOXHOLE_IMAGE" /work \
+              --offline \
+              --max-db-age "$FOXHOLE_MAX_DB_AGE" \
+              --report console,json,sarif,html \
+              --split-reports \
+              --evidence \
+              --fail-on high \
+              $POLICY \
+              $POLICY_DIR
+        '''
+      }
+    }
+  }
+
+  post {
+    always {
+      archiveArtifacts artifacts: 'foxhole-report.*,foxhole-*.json,foxhole-remediation.*,foxhole-evidence/**,foxhole-triage.*,db-verify-import.txt', allowEmptyArchive: true
+    }
+  }
+}

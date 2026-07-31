@@ -1,0 +1,79 @@
+# Networked builder: refresh the vuln DB and publish a signed air-gap bundle.
+# Air-gapped agents import this bundle and scan with --offline --max-db-age.
+# See docs/AIRGAP.md and examples/jenkins/Jenkinsfile.nightly.
+name: Nightly DB bundle
+
+on:
+  schedule:
+    # 06:00 UTC daily
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  bundle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.x"
+
+      - name: Build foxhole
+        run: go build -o bin/foxhole ./cmd/foxhole
+
+      - name: Update DB (online)
+        env:
+          FOXHOLE_DB_PATH: ${{ runner.temp }}/foxhole.db
+          FOXHOLE_NVD_API_KEY: ${{ secrets.FOXHOLE_NVD_API_KEY }}
+        run: |
+          ./bin/foxhole db update --max-packages 500
+          ./bin/foxhole db verify --db-path "$FOXHOLE_DB_PATH" | tee db-verify.txt
+
+      - name: Export bundle
+        env:
+          FOXHOLE_DB_PATH: ${{ runner.temp }}/foxhole.db
+        run: |
+          NAME="foxhole-db-$(date -u +%Y%m%d).tar.gz"
+          ./bin/foxhole db export -o "$NAME"
+          echo "BUNDLE=$NAME" >> "$GITHUB_ENV"
+          ls -lh "$NAME"
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign bundle
+        run: |
+          cosign sign-blob --yes --bundle "${BUNDLE}.cosign.bundle" "$BUNDLE"
+
+      - name: Upload workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: foxhole-db-bundle-nightly
+          path: |
+            ${{ env.BUNDLE }}
+            ${{ env.BUNDLE }}.cosign.bundle
+            db-verify.txt
+          retention-days: 14
+
+      - name: Publish rolling prerelease (db-bundle-nightly)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -eu
+          TAG=db-bundle-nightly
+          TITLE="Nightly DB bundle $(date -u +%Y-%m-%d)"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$BUNDLE" "${BUNDLE}.cosign.bundle" --clobber
+            gh release edit "$TAG" --title "$TITLE" --prerelease --notes "Auto-built air-gap vuln DB bundle. Import with \`foxhole db import\` then scan \`--offline --max-db-age 720h\`. See docs/AIRGAP.md."
+          else
+            gh release create "$TAG" "$BUNDLE" "${BUNDLE}.cosign.bundle" \
+              --prerelease \
+              --title "$TITLE" \
+              --notes "Auto-built air-gap vuln DB bundle. Import with \`foxhole db import\` then scan \`--offline --max-db-age 720h\`. See docs/AIRGAP.md."
+          fi

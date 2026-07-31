@@ -30,7 +30,13 @@ foxhole db export -o foxhole-db-$(date -u +%Y%m%d).tar.gz
 # Optional: cosign sign-blob foxhole-db-….tar.gz
 ```
 
-Or run [publish-db-bundle.yml](../.github/workflows/publish-db-bundle.yml).
+Or run one of:
+
+| Workflow / pipeline | Role |
+|---------------------|------|
+| [nightly-db-bundle.yml](../.github/workflows/nightly-db-bundle.yml) | Scheduled online update → signed `.tar.gz` + rolling `db-bundle-nightly` release |
+| [publish-db-bundle.yml](../.github/workflows/publish-db-bundle.yml) | Manual / GitHub Release attach |
+| [Jenkinsfile.nightly](../examples/jenkins/Jenkinsfile.nightly) | Jenkins cron on a networked agent |
 
 ### 2. Mirror into the air gap
 
@@ -43,7 +49,7 @@ Or run [publish-db-bundle.yml](../.github/workflows/publish-db-bundle.yml).
 cosign verify \
   --certificate-identity-regexp='https://github.com/jasonflaherty/foxhole/\.github/workflows/publish-image\.yml@.*' \
   --certificate-oidc-issuer='https://token.actions.githubusercontent.com' \
-  ghcr.io/jasonflaherty/foxhole:v0.4.0
+  ghcr.io/jasonflaherty/foxhole:v0.4.1
 
 foxhole db import ./foxhole-db-YYYYMMDD.tar.gz
 foxhole . --offline --max-db-age 720h \
@@ -54,15 +60,18 @@ foxhole . --offline --max-db-age 720h \
 
 `--max-db-age 720h` fails the job (**exit 1**) if the imported DB is older than 30 days.
 
+Pipelines that encode this path:
+
+| Workflow / pipeline | Role |
+|---------------------|------|
+| [airgap-offline-scan.yml](../.github/workflows/airgap-offline-scan.yml) | Actions demo: export → import → offline scan → stale-DB gate |
+| [Jenkinsfile.airgap](../examples/jenkins/Jenkinsfile.airgap) | Jenkins PR/CI on offline agents (`copyArtifacts` from nightly) |
+| [demo-db-bundle.yml](../.github/workflows/demo-db-bundle.yml) | Shorter Actions smoke for `db export`/`import` |
+
 ### 4. Keep the evidence pack
 
 Archive `foxhole-evidence/` (DB hash, `last_sync_at`, policy fingerprint, SARIF,
 suppressions) for auditors.
-
-## CI demo
-
-[demo-db-bundle.yml](../.github/workflows/demo-db-bundle.yml) exercises export →
-import → offline scan → stale-DB fail in GitHub Actions.
 
 ## Related
 

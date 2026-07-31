@@ -42,8 +42,8 @@ Or install the binary / pull the image:
 ```bash
 go install github.com/jasonflaherty/foxhole/cmd/foxhole@latest
 # or
-docker pull ghcr.io/jasonflaherty/foxhole:v0.4.0
-# Docker Hub (if published): docker pull <hub-user>/foxhole:v0.4.0
+docker pull ghcr.io/jasonflaherty/foxhole:v0.4.1
+# Docker Hub (if published): docker pull <hub-user>/foxhole:v0.4.1
 ```
 
 ## Mental model
@@ -221,7 +221,7 @@ foxhole serve --addr :8080
 docker run --rm \
   -v foxhole-data:/var/lib/foxhole \
   -v "$PWD:/work:ro" \
-  ghcr.io/jasonflaherty/foxhole:v0.4.0 /work --offline
+  ghcr.io/jasonflaherty/foxhole:v0.4.1 /work --offline
 
 ./docker/run-demo.sh    # offline go-demo in one shot
 ```
@@ -254,8 +254,8 @@ Sample file: [examples/foxhole.yaml](examples/foxhole.yaml).
 |-----|-----------------|
 | [docs/V1.md](docs/V1.md) | v1.0.0 product contract (in/out of scope) |
 | [examples/README.md](examples/README.md) | Fixtures + which Actions demo to run |
-| [examples/jenkins/](examples/jenkins/) | Jenkins pipeline / shared lib |
-| [docs/AIRGAP.md](docs/AIRGAP.md) | Offline / air-gapped CI |
+| [examples/jenkins/](examples/jenkins/) | Jenkins: online, nightly, air-gap pipelines |
+| [docs/AIRGAP.md](docs/AIRGAP.md) | Offline / air-gapped CI + nightly bundles |
 | [docker/README.md](docker/README.md) | Images, volumes, cosign |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | What’s shipped |
 | [docs/Foxhole_Design_Book.md](docs/Foxhole_Design_Book.md) | Architecture |

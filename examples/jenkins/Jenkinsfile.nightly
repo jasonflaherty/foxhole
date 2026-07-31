@@ -1,0 +1,111 @@
+// Nightly networked builder: refresh vuln DB and export an air-gap bundle.
+// Schedule this job (Build periodically / cron) on a runner with outbound
+// access to NVD/OSV. Air-gapped PR jobs use Jenkinsfile.airgap + this artifact.
+//
+// Suggested cron: H 6 * * *  (once daily)
+// Optional credentials: FOXHOLE_NVD_API_KEY
+// Mirror the archived .tar.gz into the air gap (Artifactory, SMB, etc.).
+
+pipeline {
+  agent any
+
+  triggers {
+    cron('H 6 * * *')
+  }
+
+  environment {
+    FOXHOLE_IMAGE = "${env.FOXHOLE_IMAGE ?: 'ghcr.io/jasonflaherty/foxhole:v0.4.1'}"
+    FOXHOLE_DB_PATH = "${WORKSPACE}/.foxhole/foxhole.db"
+    FOXHOLE_REQUIRE_COSIGN = "${env.FOXHOLE_REQUIRE_COSIGN ?: 'false'}"
+  }
+
+  options {
+    timestamps()
+    timeout(time: 90, unit: 'MINUTES')
+    buildDiscarder(logRotator(numToKeepStr: '30', artifactNumToKeepStr: '14'))
+  }
+
+  stages {
+    stage('Checkout') {
+      steps {
+        checkout scm
+      }
+    }
+
+    stage('Pull and verify image') {
+      steps {
+        sh '''
+          set -eu
+          docker pull "$FOXHOLE_IMAGE"
+          if [ "${FOXHOLE_REQUIRE_COSIGN}" = "true" ]; then
+            command -v cosign >/dev/null 2>&1 || { echo "cosign required" >&2; exit 1; }
+            cosign verify \
+              --certificate-identity-regexp='https://github.com/jasonflaherty/foxhole/\.github/workflows/publish-image\.yml@.*' \
+              --certificate-oidc-issuer='https://token.actions.githubusercontent.com' \
+              "$FOXHOLE_IMAGE"
+          fi
+        '''
+      }
+    }
+
+    stage('DB update (online)') {
+      steps {
+        // Bind credential id foxhole-nvd-api-key in the job, or export FOXHOLE_NVD_API_KEY.
+        sh '''
+          set -eu
+          mkdir -p "$(dirname "$FOXHOLE_DB_PATH")"
+          docker run --rm \
+            -v "$WORKSPACE:/work" \
+            -e FOXHOLE_DB_PATH=/work/.foxhole/foxhole.db \
+            -e FOXHOLE_NVD_API_KEY \
+            "$FOXHOLE_IMAGE" db update /work
+          docker run --rm \
+            -v "$WORKSPACE:/work" \
+            -e FOXHOLE_DB_PATH=/work/.foxhole/foxhole.db \
+            "$FOXHOLE_IMAGE" db verify | tee db-verify.txt
+        '''
+      }
+    }
+
+    stage('Export air-gap bundle') {
+      steps {
+        sh '''
+          set -eu
+          BUNDLE_NAME="foxhole-db-$(date -u +%Y%m%d).tar.gz"
+          echo "BUNDLE_NAME=$BUNDLE_NAME" > bundle.env
+          docker run --rm \
+            -v "$WORKSPACE:/work" \
+            -e FOXHOLE_DB_PATH=/work/.foxhole/foxhole.db \
+            -w /work \
+            "$FOXHOLE_IMAGE" db export -o "/work/${BUNDLE_NAME}"
+          test -f "$BUNDLE_NAME"
+          ls -lh "$BUNDLE_NAME" | tee bundle-ls.txt
+        '''
+      }
+    }
+
+    stage('Sign bundle (optional)') {
+      when {
+        expression { return env.FOXHOLE_SIGN_BUNDLE == 'true' }
+      }
+      steps {
+        sh '''
+          set -eu
+          # shellcheck disable=SC1091
+          . ./bundle.env
+          command -v cosign >/dev/null 2>&1 || { echo "cosign required to sign bundle" >&2; exit 1; }
+          cosign sign-blob --yes --bundle "${BUNDLE_NAME}.cosign.bundle" "$BUNDLE_NAME"
+        '''
+      }
+    }
+  }
+
+  post {
+    always {
+      archiveArtifacts artifacts: 'foxhole-db-*.tar.gz,foxhole-db-*.cosign.bundle,db-verify.txt,bundle-ls.txt', allowEmptyArchive: true
+    }
+    success {
+      echo "Mirror foxhole-db-YYYYMMDD.tar.gz into the air gap, then run Jenkinsfile.airgap on offline agents."
+    }
+  }
+}

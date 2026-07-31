@@ -1,0 +1,137 @@
+# Air-gapped / offline CI pattern for Foxhole.
+# Job "bundle" simulates the networked builder; job "offline-scan" never calls
+# providers — it only imports a bundle and scans with --offline --max-db-age.
+# Copy this into app repos, or use examples/jenkins/Jenkinsfile.airgap.
+# Production: drop the bundle job and download a nightly/release artifact instead.
+name: Air-gap offline scan
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/airgap-offline-scan.yml"
+      - "docs/AIRGAP.md"
+      - "examples/jenkins/**"
+      - "internal/dbbundle/**"
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/airgap-offline-scan.yml"
+      - "docs/AIRGAP.md"
+      - "examples/jenkins/**"
+      - "internal/dbbundle/**"
+
+permissions:
+  contents: read
+
+jobs:
+  # ── Networked builder (or replace with: download nightly DB bundle) ──
+  bundle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      bundle_name: foxhole-db-airgap.tar.gz
+    env:
+      FOXHOLE_DB_PATH: ${{ github.workspace }}/.foxhole/source.db
+      DEMO: examples/go-demo
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.x"
+          cache: true
+
+      - name: Build foxhole
+        run: go build -o bin/foxhole ./cmd/foxhole
+
+      - name: Update + export bundle
+        run: |
+          mkdir -p "$(dirname "$FOXHOLE_DB_PATH")"
+          # Demo CI uses embedded seeds. Production nightly uses online db update
+          # (see nightly-db-bundle.yml) and mirrors the .tar.gz into the air gap.
+          ./bin/foxhole db update "$DEMO" --db-path "$FOXHOLE_DB_PATH" --offline
+          ./bin/foxhole db verify --db-path "$FOXHOLE_DB_PATH" | tee db-verify-source.txt
+          ./bin/foxhole db export -o foxhole-db-airgap.tar.gz --db-path "$FOXHOLE_DB_PATH"
+
+      - name: Upload DB bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: foxhole-db-airgap
+          path: |
+            foxhole-db-airgap.tar.gz
+            db-verify-source.txt
+
+  # ── Air-gapped agent: no provider refresh ──
+  offline-scan:
+    needs: bundle
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      IMPORT_DB: ${{ github.workspace }}/.foxhole/imported.db
+      DEMO: examples/go-demo
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.x"
+          cache: true
+
+      - name: Build foxhole
+        run: go build -o bin/foxhole ./cmd/foxhole
+
+      - name: Download DB bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: foxhole-db-airgap
+          path: .
+
+      - name: Import bundle
+        run: |
+          ./bin/foxhole db import foxhole-db-airgap.tar.gz --db-path "$IMPORT_DB" | tee db-import.txt
+          ./bin/foxhole db verify --db-path "$IMPORT_DB" | tee db-verify-import.txt
+
+      - name: Offline scan (max-db-age freshness)
+        run: |
+          ./bin/foxhole "$DEMO" \
+            --db-path "$IMPORT_DB" \
+            --offline \
+            --secrets=false --eol=false \
+            --max-db-age 720h \
+            --evidence \
+            --split-reports \
+            --report console,json,sarif \
+            | tee scan-offline.txt
+          test -f foxhole-evidence/manifest.json
+
+      - name: Stale DB gate (expect exit 1)
+        run: |
+          set +e
+          ./bin/foxhole "$DEMO" \
+            --db-path "$IMPORT_DB" \
+            --offline \
+            --secrets=false --eol=false \
+            --max-db-age 1ns \
+            --report console \
+            > stale-stdout.txt 2> stale-stderr.txt
+          code=$?
+          set -e
+          echo "exit=${code}" | tee stale-exit.txt
+          test "$code" -eq 1
+
+      - name: Upload offline evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: foxhole-airgap-offline-evidence
+          path: |
+            db-import.txt
+            db-verify-import.txt
+            scan-offline.txt
+            stale-exit.txt
+            foxhole-report.*
+            foxhole-*.json
+            foxhole-evidence/**
+          if-no-files-found: ignore

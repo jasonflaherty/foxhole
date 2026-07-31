@@ -27,7 +27,7 @@ Expect a HIGH vuln in `go-demo`, and secret/EOL hits in `phase2-findings`.
 | [policy.yaml](policy.yaml) | CI policy + suppressions (`exit 2`) |
 | [policy-pack/](policy-pack/) | Org packs via `--policy-dir` |
 | [foxhole.yaml](foxhole.yaml) | Sample config file |
-| [jenkins/](jenkins/) | Declarative pipeline, shared lib, cosign, evidence |
+| [jenkins/](jenkins/) | Declarative pipeline, nightly + air-gap Jenkinsfiles, shared lib |
 
 ## Feature walkthroughs (local)
 
@@ -67,6 +67,8 @@ Run from **Actions → Demo — … → Run workflow**.
 | [demo-triage.yml](../.github/workflows/demo-triage.yml) | `--triage` |
 | [demo-github-diff.yml](../.github/workflows/demo-github-diff.yml) | `--github-diff` open/close (mock API) |
 | [demo-db-bundle.yml](../.github/workflows/demo-db-bundle.yml) | `db export`/`import` + stale DB |
+| [airgap-offline-scan.yml](../.github/workflows/airgap-offline-scan.yml) | Air-gap path: bundle job → offline scan |
+| [nightly-db-bundle.yml](../.github/workflows/nightly-db-bundle.yml) | Scheduled online DB update + signed bundle |
 | [demo-serve-auth.yml](../.github/workflows/demo-serve-auth.yml) | Serve API token |
 | [capabilities-demo.yml](../.github/workflows/capabilities-demo.yml) | Combined product tour |
 | [phase2-findings-demo.yml](../.github/workflows/phase2-findings-demo.yml) | Secret + EOL assertion |
@@ -81,5 +83,9 @@ Main usage guide: [README.md](../README.md).
 
 ## Jenkins
 
-See [jenkins/](jenkins/) for a pinned-image `Jenkinsfile`, `vars/foxholeScan.groovy`,
-Warnings NG / HTML Publisher notes, and evidence artifacts.
+See [jenkins/](jenkins/) for:
+
+- [Jenkinsfile](jenkins/Jenkinsfile) — online update + scan (connected agents)
+- [Jenkinsfile.nightly](jenkins/Jenkinsfile.nightly) — cron DB refresh + air-gap export
+- [Jenkinsfile.airgap](jenkins/Jenkinsfile.airgap) — offline import + `--max-db-age` scan
+- `vars/foxholeScan.groovy`, Warnings NG / HTML Publisher notes, evidence artifacts
