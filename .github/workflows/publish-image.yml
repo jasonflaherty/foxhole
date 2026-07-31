@@ -123,9 +123,20 @@ jobs:
           image-ref: ${{ env.SCAN_IMAGE }}
           severity: CRITICAL,HIGH
           ignore-unfixed: true
+          format: table
+          exit-code: "1"
+          vuln-type: os,library
+
+      - name: Trivy SARIF report
+        if: success() || failure()
+        uses: aquasecurity/trivy-action@0.35.0
+        with:
+          image-ref: ${{ env.SCAN_IMAGE }}
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
           format: sarif
           output: trivy-results.sarif
-          exit-code: "1"
+          exit-code: "0"
           vuln-type: os,library
 
       - name: Upload Trivy SARIF
