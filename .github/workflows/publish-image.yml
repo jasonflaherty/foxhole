@@ -33,20 +33,28 @@ jobs:
         run: |
           GHCR="${GITHUB_REPOSITORY,,}"
           echo "ghcr=${GHCR}" >> "$GITHUB_OUTPUT"
-          {
-            echo "images<<EOF"
-            echo "ghcr.io/${GHCR}"
-            if [ -n "${DOCKERHUB_USERNAME}" ]; then
+
+          # Flags must be written outside the images heredoc — otherwise they
+          # land inside the multiline value and break docker/metadata-action.
+          if [ -n "${DOCKERHUB_USERNAME}" ]; then
+            echo "push_dockerhub=true" >> "$GITHUB_OUTPUT"
+            echo "dockerhub=${DOCKERHUB_USERNAME}/foxhole" >> "$GITHUB_OUTPUT"
+            {
+              echo "images<<EOF"
+              echo "ghcr.io/${GHCR}"
               echo "docker.io/${DOCKERHUB_USERNAME}/foxhole"
-              echo "push_dockerhub=true" >> "$GITHUB_OUTPUT"
-              echo "dockerhub=${DOCKERHUB_USERNAME}/foxhole" >> "$GITHUB_OUTPUT"
-            else
-              echo "push_dockerhub=false" >> "$GITHUB_OUTPUT"
-              echo "dockerhub=" >> "$GITHUB_OUTPUT"
-              echo "::notice::DOCKERHUB_USERNAME not set — publishing to GHCR only"
-            fi
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
+          else
+            echo "push_dockerhub=false" >> "$GITHUB_OUTPUT"
+            echo "dockerhub=" >> "$GITHUB_OUTPUT"
+            echo "::notice::DOCKERHUB_USERNAME not set — publishing to GHCR only"
+            {
+              echo "images<<EOF"
+              echo "ghcr.io/${GHCR}"
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Resolve version
         id: ver
