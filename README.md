@@ -262,6 +262,25 @@ golangci-lint run
 go build -o bin/foxhole ./cmd/foxhole
 ```
 
+## Acknowledgments
+
+Foxhole stands on public security data and community pattern work. We do **not**
+vendor those projects wholesale; we use them as sources of truth or inspiration.
+
+| Source | How Foxhole uses it |
+|--------|---------------------|
+| [NVD](https://nvd.nist.gov/) | CVE advisories via the NVD API (`db update`) |
+| [OSV](https://osv.dev/) | Ecosystem advisories (`db update`) |
+| [GitHub Advisory Database (GHSA)](https://github.com/advisories) | GHSA records in the local advisory store |
+| [CISA KEV](https://www.cisa.gov/known-exploited-vulnerabilities-catalog) / [EPSS](https://www.first.org/epss/) | Optional enrichment (`--enrich`) |
+| [endoflife.date](https://endoflife.date/) | EOL cycle dates linked from seeded runtime checks |
+| [secrets-patterns-db](https://github.com/mazen160/secrets-patterns-db) | Inspiration for the curated secret rule pack (`internal/seeds/secrets.json`) — high-confidence AWS/GCP/Azure/GitHub/JWT/PEM-style patterns only; not a full import of the YAML/TOML DB |
+
+Secret detection stays intentionally thin versus dedicated scanners such as
+[TruffleHog](https://github.com/trufflesecurity/trufflehog) or
+[Gitleaks](https://github.com/gitleaks/gitleaks). Compare on Juice Shop with
+[`.github/workflows/compare-juice-shop.yml`](.github/workflows/compare-juice-shop.yml).
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
