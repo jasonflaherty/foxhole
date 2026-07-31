@@ -17,6 +17,8 @@ docker pull jasonflaherty/foxhole:v0.4.0   # username matches your Hub account
 ```
 
 Pushed by [publish-image.yml](../.github/workflows/publish-image.yml) on `main` (`:latest`), `v*` tags, and releases.
+Each publish **builds locally → Trivy-scans (fails on CRITICAL/HIGH, unfixed ignored) → pushes → cosign-signs**.
+SARIF is uploaded to GitHub Code Scanning when available.
 
 ```bash
 # Prefer a version tag (or digest) for CI — not :latest

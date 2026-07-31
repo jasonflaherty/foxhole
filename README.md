@@ -1,5 +1,9 @@
 # Foxhole
 
+[![CI](https://github.com/jasonflaherty/foxhole/actions/workflows/ci.yml/badge.svg)](https://github.com/jasonflaherty/foxhole/actions/workflows/ci.yml)
+[![Publish & Trivy](https://github.com/jasonflaherty/foxhole/actions/workflows/publish-image.yml/badge.svg)](https://github.com/jasonflaherty/foxhole/actions/workflows/publish-image.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 Offline-first supply chain scanner for local projects and CI.
 
 Foxhole scans a workspace for dependency vulns, secrets, EOL runtimes, risky
@@ -11,7 +15,8 @@ evidence—deterministically, with an optional local vuln DB that works offline.
 |--|--|
 | **Image** | `ghcr.io/jasonflaherty/foxhole` (and Docker Hub when configured) |
 | **License** | MIT |
-| **Not this** | Not a SaaS dashboard, Dependabot, or image scanner like Trivy |
+| **Image gate** | Trivy CRITICAL/HIGH before publish (see Publish & Trivy badge) |
+| **Not this** | Not a SaaS dashboard, Dependabot, or a replacement for Trivy image scanning |
 
 ## Quick start (5 minutes)
 

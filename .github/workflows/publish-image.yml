@@ -1,6 +1,6 @@
 name: Publish container image
 
-# Build and push to GHCR and (when secrets are set) Docker Hub.
+# Build, Trivy-scan (CRITICAL/HIGH), push to GHCR and (when secrets are set) Docker Hub.
 # Triggers: main, v* tags, releases, workflow_dispatch.
 on:
   push:
@@ -14,9 +14,11 @@ permissions:
   contents: read
   packages: write
   id-token: write # cosign keyless signing
+  security-events: write # Trivy SARIF → Code Scanning
 
 env:
   GHCR_REGISTRY: ghcr.io
+  SCAN_IMAGE: foxhole:scan
 
 jobs:
   publish:
@@ -101,7 +103,40 @@ jobs:
             type=sha,prefix=sha-,format=short
             type=raw,value=${{ steps.ver.outputs.version }},enable=${{ github.ref_type != 'tag' && github.event_name != 'release' }}
 
-      - name: Build and push
+      - name: Build image (local, for scan)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile.cli
+          load: true
+          push: false
+          tags: ${{ env.SCAN_IMAGE }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ steps.ver.outputs.version }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Trivy scan (fail on CRITICAL/HIGH)
+        uses: aquasecurity/trivy-action@0.30.0
+        with:
+          image-ref: ${{ env.SCAN_IMAGE }}
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          format: sarif
+          output: trivy-results.sarif
+          exit-code: "1"
+          vuln-type: os,library
+
+      - name: Upload Trivy SARIF
+        if: always() && hashFiles('trivy-results.sarif') != ''
+        continue-on-error: true
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-results.sarif
+          category: trivy-container
+
+      - name: Push image
         id: push
         uses: docker/build-push-action@v6
         with:
@@ -148,6 +183,7 @@ jobs:
             fi
             echo "- Version build-arg: \`${{ steps.ver.outputs.version }}\`"
             echo "- Digest: \`${{ steps.push.outputs.digest }}\`"
+            echo "- Trivy: CRITICAL/HIGH gate passed (unfixed ignored); SARIF uploaded when available"
             echo "- Cosign: keyless sign applied"
             echo "- Tags:"
             echo '```'
