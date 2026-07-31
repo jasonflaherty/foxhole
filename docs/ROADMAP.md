@@ -64,7 +64,8 @@ Living checklist aligned with [Foxhole_Design_Book.md](Foxhole_Design_Book.md).
 - [x] `foxhole db export` / `db import` bundles + cosign sign image/DB workflows
 - [x] Air-gap runbook ([AIRGAP.md](AIRGAP.md))
 
-**Release:** `v0.4.0` — curated cloud/token secret pack + Juice Shop bake-off (continue testing toward `v1.0.0`).
+**Release:** `v0.4.0` — curated cloud/token secret pack + Juice Shop bake-off.  
+**v1 gate:** [V1.md](V1.md) — CI gate + evidence + air-gap; soak then tag `v1.0.0`.
 
 ## Later / deeper
 

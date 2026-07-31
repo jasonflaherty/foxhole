@@ -23,6 +23,16 @@ func TestLoadDefaults(t *testing.T) {
 }
 
 func TestFromViperFile(t *testing.T) {
+	// Clear env so AutomaticEnv does not override the config file (CI/dev shells
+	// often export FOXHOLE_DB_PATH).
+	for _, key := range []string{"FOXHOLE_DB_PATH", "FOXHOLE_OFFLINE", "FOXHOLE_LOG_LEVEL"} {
+		old, had := os.LookupEnv(key)
+		_ = os.Unsetenv(key)
+		if had {
+			t.Cleanup(func() { _ = os.Setenv(key, old) })
+		}
+	}
+
 	dir := t.TempDir()
 	path := filepath.Join(dir, "foxhole.yaml")
 	content := []byte("log_level: debug\noffline: true\ndb_path: /tmp/test.db\n")

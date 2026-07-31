@@ -45,3 +45,48 @@ func TestScanHistory(t *testing.T) {
 		t.Fatalf("latest=%v prev=%v", latest, prev)
 	}
 }
+
+func TestLastGreenScan(t *testing.T) {
+	t.Parallel()
+	database, err := db.Open(filepath.Join(t.TempDir(), "green.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+	ctx := context.Background()
+	target := "/tmp/green-app"
+
+	failID, err := database.StartScanHistory(ctx, target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := database.FinishScanHistory(ctx, failID, 3, "", `[]`, "policy_failed"); err != nil {
+		t.Fatal(err)
+	}
+	greenID, err := database.StartScanHistory(ctx, target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := database.FinishScanHistory(ctx, greenID, 0, "", `[]`, "ok"); err != nil {
+		t.Fatal(err)
+	}
+	failAgain, err := database.StartScanHistory(ctx, target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := database.FinishScanHistory(ctx, failAgain, 1, "", `[]`, "policy_failed"); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := database.LastGreenScan(ctx, target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got == nil || got.ID != greenID || !got.PolicyPassed {
+		t.Fatalf("LastGreenScan = %+v want id=%d", got, greenID)
+	}
+	missing, err := database.LastGreenScan(ctx, "/tmp/none")
+	if err != nil || missing != nil {
+		t.Fatalf("missing = %v err=%v", missing, err)
+	}
+}

@@ -247,6 +247,7 @@ Sample file: [examples/foxhole.yaml](examples/foxhole.yaml).
 
 | Doc | When to read it |
 |-----|-----------------|
+| [docs/V1.md](docs/V1.md) | v1.0.0 product contract (in/out of scope) |
 | [examples/README.md](examples/README.md) | Fixtures + which Actions demo to run |
 | [examples/jenkins/](examples/jenkins/) | Jenkins pipeline / shared lib |
 | [docs/AIRGAP.md](docs/AIRGAP.md) | Offline / air-gapped CI |

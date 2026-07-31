@@ -149,3 +149,21 @@ func TestLoadDirMerge(t *testing.T) {
 		t.Fatalf("suppressions = %+v", p.Suppressions)
 	}
 }
+
+func TestFingerprintStable(t *testing.T) {
+	t.Parallel()
+	p := policy.Policy{ID: "org", Version: "1", FailOn: "high", Kinds: []string{"vuln", "secret"}}
+	a, err := policy.Fingerprint(p)
+	if err != nil || a == "" {
+		t.Fatalf("fp a: %v %q", err, a)
+	}
+	b, err := policy.Fingerprint(p)
+	if err != nil || b != a {
+		t.Fatalf("fp not stable: %q vs %q err=%v", a, b, err)
+	}
+	p.Version = "2"
+	c, err := policy.Fingerprint(p)
+	if err != nil || c == a {
+		t.Fatalf("fp should change on version: %q vs %q", a, c)
+	}
+}

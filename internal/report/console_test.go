@@ -103,3 +103,39 @@ func TestMarkdownHTML(t *testing.T) {
 		t.Fatal(buf.String())
 	}
 }
+
+func TestJUnitCycloneDXSPDX(t *testing.T) {
+	t.Parallel()
+	var buf bytes.Buffer
+	if err := (report.JUnit{}).Write(&buf, sampleResult()); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "<testsuite") || !strings.Contains(out, "CVE-2024-1") {
+		t.Fatalf("junit = %s", out)
+	}
+
+	buf.Reset()
+	if err := (report.CycloneDX{}).Write(&buf, sampleResult()); err != nil {
+		t.Fatal(err)
+	}
+	cdx := buf.String()
+	if !strings.Contains(cdx, `"bomFormat": "CycloneDX"`) && !strings.Contains(cdx, `"bomFormat":"CycloneDX"`) {
+		// encoder may indent
+		if !strings.Contains(cdx, "CycloneDX") {
+			t.Fatalf("cyclonedx = %s", cdx)
+		}
+	}
+	if !strings.Contains(cdx, "CVE-2024-1") {
+		t.Fatalf("cyclonedx missing vuln: %s", cdx)
+	}
+
+	buf.Reset()
+	if err := (report.SPDX{}).Write(&buf, sampleResult()); err != nil {
+		t.Fatal(err)
+	}
+	spdx := buf.String()
+	if !strings.Contains(spdx, "SPDX-2.3") && !strings.Contains(spdx, "spdxVersion") {
+		t.Fatalf("spdx = %s", spdx)
+	}
+}
